@@ -1,47 +1,78 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import DropOverlay from "#lib/components/DropOverlay.svelte";
+  import HomeView from "#lib/components/HomeView.svelte";
+  import LibraryView from "#lib/components/LibraryView.svelte";
+  import Sidebar from "#lib/components/Sidebar.svelte";
+  import TitleBar from "#lib/components/TitleBar.svelte";
+  import Toasts from "#lib/components/Toasts.svelte";
+  import { library } from "#lib/stores/library.svelte.ts";
+  import { SECTION_KIND, nav } from "#lib/stores/nav.svelte.ts";
+  import { theme } from "#lib/stores/theme.svelte.ts";
 
-  let version = $state<string | null>(null);
+  const titles = { all: "Biblioteca", books: "Libros", comics: "Cómics" } as const;
 
   $effect(() => {
-    invoke<string>("app_version")
-      .then((v) => (version = v))
-      .catch(() => (version = null));
+    void theme.init();
+    void library.refreshStats();
   });
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.ctrlKey && event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      void (event.shiftKey ? library.pickFolder() : library.pickFiles());
+    }
+  }
+
+  // Sin menú contextual del navegador fuera de los campos de texto.
+  function onContextMenu(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target.closest("input, textarea")) event.preventDefault();
+  }
 </script>
 
-<main>
-  <h1>Nebula Reader</h1>
-  <p>Base del proyecto lista.</p>
-  {#if version}
-    <p class="muted">Núcleo v{version}</p>
-  {/if}
-</main>
+<svelte:window onkeydown={onKeydown} oncontextmenu={onContextMenu} />
+
+<div class="app">
+  <TitleBar />
+  <div class="body">
+    <Sidebar />
+    <main class="content">
+      {#if nav.section === "home"}
+        <HomeView />
+      {:else}
+        {#key nav.section}
+          <LibraryView kind={SECTION_KIND[nav.section]} title={titles[nav.section]} />
+        {/key}
+      {/if}
+    </main>
+  </div>
+</div>
+
+<DropOverlay />
+<Toasts />
 
 <style>
-  :global(:root) {
-    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-    color-scheme: light dark;
-  }
-
-  :global(*, *::before, *::after) {
-    box-sizing: border-box;
-  }
-
-  :global(html, body) {
-    margin: 0;
+  .app {
     height: 100%;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
-  main {
-    height: 100%;
-    display: grid;
-    place-content: center;
-    text-align: center;
+  .body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
   }
 
-  .muted {
-    opacity: 0.6;
+  .content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 28px 36px 36px;
+    background: var(--layer);
+    border-top: 1px solid var(--layer-stroke);
+    border-left: 1px solid var(--layer-stroke);
+    border-top-left-radius: var(--radius-md);
+    scrollbar-gutter: stable;
   }
 </style>
