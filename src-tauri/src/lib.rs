@@ -3,7 +3,9 @@
 //! Se mantiene fina: la lógica vive en `nebula-core`.
 
 mod commands;
+mod documents;
 mod error;
+mod protocol;
 mod state;
 
 use nebula_core::Library;
@@ -15,6 +17,8 @@ use crate::state::AppState;
 /// Nombre del archivo de la biblioteca dentro de la carpeta local de datos
 /// (`%LOCALAPPDATA%\com.nebulareader.reader`).
 const LIBRARY_FILE: &str = "library.db";
+/// Carpeta de miniaturas de portada dentro de la carpeta local de datos.
+const THUMBS_DIR: &str = "thumbs";
 
 /// Arranca la aplicación.
 ///
@@ -32,11 +36,13 @@ pub fn run() -> tauri::Result<()> {
                 .with_state_flags(StateFlags::all() - StateFlags::DECORATIONS)
                 .build(),
         )
+        .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handle)
         .setup(|app| {
-            let db_path = app.path().app_local_data_dir()?.join(LIBRARY_FILE);
+            let data_dir = app.path().app_local_data_dir()?;
+            let db_path = data_dir.join(LIBRARY_FILE);
             tracing::info!(path = %db_path.display(), "abriendo biblioteca");
             let library = Library::open(&db_path)?;
-            app.manage(AppState::new(library));
+            app.manage(AppState::new(library, data_dir.join(THUMBS_DIR)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -45,6 +51,10 @@ pub fn run() -> tauri::Result<()> {
             commands::library_stats,
             commands::library_import,
             commands::library_remove,
+            commands::library_continue_reading,
+            commands::book_open,
+            commands::book_close,
+            commands::progress_save,
             commands::settings_get,
             commands::settings_set,
         ])
