@@ -9,24 +9,20 @@ Objetivos de recursos (medidos en release, memoria privada total = app + proceso
 - Instalador NSIS: < 10 MB sin pdfium (v0.1.0: 1,12 MiB).
 
 ## Cómo usar este plan
-Estados de una tarea:
-- `[ ]` pendiente
-- `[ ] 🔍 en revisión`: implementada y con los checks automáticos en verde, a la espera de que el usuario la pruebe
-- `[x]` aprobada: el usuario la ha probado y ha dado su conformidad explícita
-
-Reglas:
-1. Antes de pedir revisión, deben pasar `cargo fmt --all`,
-   `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --workspace`,
-   `npm run check` y `npm run build`.
-2. Cada petición de revisión incluye: cambios realizados, checks ejecutados, lo no verificado
-   y los pasos exactos para que el usuario lo pruebe.
-   Si la tarea afecta a la interfaz, antes de pedir revisión el asistente compila en release,
-   abre la app, toma una captura y mide arranque y RAM con `scripts/measure.ps1`.
-   Esto no sustituye a la prueba del usuario.
-3. Una casilla solo se marca `[x]` tras la aprobación explícita del usuario, en el commit de esa tarea.
-4. Si el usuario no queda conforme, la tarea vuelve a `[ ]` con una nota de lo que hay que corregir.
-5. Una fase se marca ✅ y se crea su tag solo cuando todas sus casillas están aprobadas.
+Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
+1. El asistente implementa todas las tareas pendientes de la fase.
+2. Cada tarea se marca `[x]` cuando está implementada y verificada por el asistente:
+   - `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`,
+     `cargo test --workspace`, `npm run check` y `npm run build` en verde;
+   - si afecta a la interfaz: compilación release, apertura de la app, capturas y medición con
+     `scripts/measure.ps1`.
+3. Al terminar la fase, el asistente avisa con un informe: cambios, checks ejecutados, lo no
+   verificado y los pasos exactos para que el usuario lo pruebe.
+4. El usuario revisa la fase completa y pide cambios si hace falta. Si una tarea marcada no le
+   convence, vuelve a `[ ]` con una nota de lo que hay que corregir.
+5. La fase se marca ✅ y se crea su tag **solo** cuando el usuario la aprueba; entonces se pasa a la siguiente.
 - Compilar/ejecutar la app con herramientas de **Windows** (`cargo.exe`, `npm`); `nebula-core` también se puede testear desde WSL.
+- Las tareas 1.1–1.3 se hicieron con el flujo anterior (aprobación del usuario tarea a tarea).
 
 ## Arquitectura (decisiones fijas)
 - Workspace Cargo: `crates/nebula-core` (lib sin Tauri: dominio, formatos, SQLite) + `src-tauri` (bin fino).
@@ -44,7 +40,7 @@ Reglas:
 ### Tareas
 - [x] 1.1 Scaffold con `create-tauri-app` (SvelteKit 3 + TS) desde Windows; convertir a workspace; crear `crates/nebula-core`; lints, `[profile.release]` (lto, codegen-units=1, opt-level="s", strip, panic=abort), `.gitignore`, `git init`
 - [x] 1.2 Dominio y errores: `BookId`, `BookFormat` (detección por extensión), `BookKind`, `Book`, `NewBook`, `SortBy`, `LibraryQuery`, `ImportReport`, `CoreError` + tests
-- [ ] 🔍 en revisión — 1.3 SQLite: `Library` (open / open_in_memory), migración 1 (`books`, `settings`, WAL, foreign_keys), CRUD, búsqueda/filtro/orden, settings + tests
+- [x] 1.3 SQLite: `Library` (open / open_in_memory), migración 1 (`books`, `settings`, WAL, foreign_keys), CRUD, búsqueda/filtro/orden, settings + tests
 - [ ] 1.4 Importación de archivos/carpetas (`walkdir`), filtro de formatos, duplicados, título desde nombre de archivo, `ImportReport` + tests
 - [ ] 1.5 Capa Tauri: `AppState`, comandos `library_list/import/remove`, `settings_get/set`, `CommandError`, BD en AppData, capabilities y CSP, plugins dialog y window-state
 - [ ] 1.6 Shell UI: TitleBar propia, Mica, Sidebar, tema claro/oscuro/sistema persistido
@@ -160,3 +156,4 @@ Reglas:
 - 1.3: se usa `rusqlite` 0.43, que exige Rust 1.89, así que el MSRV del workspace sube de 1.85 a 1.89 (el valor anterior era arbitrario; se compila con stable). `tracing` entra ya en `nebula-core` para registrar las migraciones.
 - 1.3: `books.path` usa `COLLATE NOCASE` porque en Windows las rutas no distinguen mayúsculas. Las tablas son `STRICT` y `format` tiene un `CHECK` con los formatos válidos. Se añade `CoreError::NonUnicodePath` (rutas no almacenables) y `CoreError::SchemaTooNew` (base de datos de una versión futura de la app).
 - 1.3: limitación conocida: la búsqueda usa `LIKE`, que solo ignora mayúsculas en ASCII (`cómic` no encuentra `CÓMIC`). Se valorará FTS5 o normalización de acentos en la fase 6 si molesta.
+- Tras la 1.3: cambia el flujo de trabajo a revisión por fases (ver "Cómo usar este plan").
