@@ -1,0 +1,18 @@
+# Node / SvelteKit
+node_modules
+/build
+/.svelte-kit
+/package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri
+/target
+/src-tauri/target
+/src-tauri/gen/schemas
+
+# Entorno
+.env
+.env.*
+!.env.example
+.DS_Store
