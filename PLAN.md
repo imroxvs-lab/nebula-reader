@@ -59,18 +59,18 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Fase 2 — Lector CBZ, portadas y progreso (v0.2.0)
 
 ### Tareas
-- [ ] 2.1 `ComicArchive` con backend zip, orden natural, filtro de imágenes, límites anti zip-bomb + tests (proptest)
-- [ ] 2.2 Miniaturas: portada desde la primera página, redimensionado con `image`, caché en `AppData/thumbs`
-- [ ] 2.3 Migración 2: `page_count`, `cover_path`, tabla `progress`
-- [ ] 2.4 Protocolo `nebula://` (páginas y miniaturas), comandos `book_open`, `progress_save`, LRU de documentos
-- [ ] 2.5 UI: portadas reales lazy, `ComicReader` (encaje, zoom, teclado/rueda, precarga ±2), barra de progreso
-- [ ] 2.6 "Continuar leyendo" en inicio y `last_opened_at`
+- [x] 2.1 `ComicArchive` con backend zip, orden natural, filtro de imágenes, límites anti zip-bomb + tests (proptest)
+- [x] 2.2 Miniaturas: portada desde la primera página, redimensionado con `image`, caché en `AppData/thumbs`
+- [x] 2.3 Migración 2: `page_count`, `cover_status` (en lugar de `cover_path`, ver registro), tabla `progress`
+- [x] 2.4 Protocolo `nebula://` (páginas y miniaturas), comandos `book_open`, `progress_save`, LRU de documentos
+- [x] 2.5 UI: portadas reales lazy, `ComicReader` (encaje, zoom, teclado/rueda, precarga ±2), barra de progreso
+- [x] 2.6 "Continuar leyendo" en inicio y `last_opened_at`
 
 ### Validación
-- [ ] Checks automáticos en verde
-- [ ] Cómic de 200+ páginas fluido; progreso se restaura al reabrir
-- [ ] Zip corrupto y rutas `..` manejados sin fallo
-- [ ] RAM en lectura medida y anotada
+- [x] Checks automáticos en verde
+- [x] Cómic de 200+ páginas fluido; progreso se restaura al reabrir
+- [x] Zip corrupto y rutas `..` manejados sin fallo
+- [x] RAM en lectura medida y anotada
 - [ ] Tag `v0.2.0`
 
 ## Fase 3 — EPUB (v0.3.0)
@@ -148,6 +148,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 |---------|-----------|-------------|----------|-------------------|
 | v0.1.0 (scaffold 1.1, preliminar) | 152 MB *commit* (métrica antigua) | — | ~250–380 ms | 1,12 MiB |
 | v0.1.0 (fase 1 completa) | **82 MB** privateWS vacía / **86 MB** con 21 elementos (*commit* 170 / 252 MB) | — | ~85–130 ms hasta ventana visible | 1,80 MiB |
+| v0.2.0 (fase 2 completa) | **94 MB** privateWS con 23 elementos (*commit* 280 MB) | **110–115 MB** leyendo un CBZ de 220 páginas de 1600×2400 (1,3 MB/página); estable tras pasar 45 páginas y volver | ~100–120 ms | 2,06 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -173,3 +174,17 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - El arrastrar y soltar no se ha podido verificar de forma automática.
     - Si la biblioteca no se puede abrir al arrancar, en release el error solo se registra (no hay consola): se añadirá un archivo de log o un diálogo de error (fase 6/7).
 - Fase 1 aprobada por el usuario; tag `v0.1.0` creado.
+- Fase 2 (2.1–2.6):
+  - **`cover_status` en lugar de `cover_path`**: la miniatura vive siempre en `thumbs/<id>.jpg` (ruta derivada del id), así que guardar la ruta solo podría quedar obsoleta. El estado (`pending`/`ready`/`failed`) evita reintentar archivos dañados. Si el fallo es de E/S (archivo no encontrado, p. ej. disco desconectado) no se marca como `failed`.
+  - **Portadas bajo demanda**: no se generan al importar. Las genera el protocolo `nebula://` la primera vez que la interfaz pide una portada visible (`loading="lazy"`), con un máximo de 2 en paralelo (semáforo de `tokio`, solo la función `sync`). JPEG de 320 px de ancho, calidad 82 y límites de decodificación de 16 384 px y 512 MB. Solo CBZ por ahora; el resto de formatos muestran la portada provisional hasta su fase.
+  - **Protocolo**: `/cover/{id}` y `/page/{id}/{index}`, con un parámetro `?v=<addedAt>` que permite cachear de forma inmutable aunque SQLite reutilice un id tras un borrado. Solo se sirven libros de la biblioteca por id; nunca rutas.
+  - **Caché LRU de 3 documentos abiertos**, implementada a mano (sin el crate `lru`): bastan unas líneas.
+  - **Precarga**: 2 páginas por delante y 1 por detrás (no ±2), porque retroceder es menos frecuente. No se reescalan las páginas en Rust: medido, la RAM en lectura se mantiene en 110–115 MB con páginas de 1600×2400. Se revisará en la fase 7 con escaneos mayores.
+  - **Lector**: ajuste a la ventana, al ancho y 1:1, con el tamaño calculado en JS a partir de las dimensiones reales; zoom (Ctrl+rueda, Ctrl ±, Ctrl 0); teclado (flechas, RePág/AvPág, Espacio, Inicio/Fin, F11, Esc); rueda con cambio de página al llegar al borde; clic en los laterales; barra que se oculta sola; pantalla completa; progreso guardado con un retardo de 600 ms y al salir. El ajuste elegido se recuerda (`readerFit`).
+  - **Errores comprensibles**: los errores de archivo se muestran con mensajes para el usuario («El archivo está dañado o no es un cómic válido.»); el detalle técnico queda en el registro.
+  - **Accesibilidad**: la tarjeta pasa a ser un contenedor con dos botones hermanos (abrir y «Más opciones»). Antes, el botón interior quedaba oculto para lectores de pantalla porque estaba dentro de un `role="button"`.
+  - **Herramienta de desarrollo**: `cargo run --release -p nebula-core --example make_comic -- <salida.cbz> [páginas] [ancho] [alto]` genera cómics de prueba con las páginas numeradas.
+  - **Pendiente o limitado**:
+    - Portadas AVIF: no hay decodificador AVIF (evita una dependencia nativa) y se usa la provisional; las páginas AVIF sí se muestran, porque las decodifica WebView2.
+    - No se leen los metadatos `ComicInfo.xml` (título, serie, autor): candidato para la fase 3 junto con los metadatos de EPUB.
+    - La versión de la app (0.1.0 en el instalador) se sube a 0.2.0 al crear el tag.
