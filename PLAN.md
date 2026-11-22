@@ -36,7 +36,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 
 ---
 
-## Fase 1 — Base, pantalla de inicio y SQLite (v0.1.0)
+## Fase 1 — Base, pantalla de inicio y SQLite (v0.1.0) ✅
 
 ### Tareas
 - [x] 1.1 Scaffold con `create-tauri-app` (SvelteKit 3 + TS) desde Windows; convertir a workspace; crear `crates/nebula-core`; lints, `[profile.release]` (lto, codegen-units=1, opt-level="s", strip, panic=abort), `.gitignore`, `git init`
@@ -54,7 +54,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] Cerrar y reabrir: biblioteca, tema y ventana persisten
 - [x] Duplicados ignorados; búsqueda/orden/filtro correctos
 - [x] Línea base medida en release (RAM en reposo, tiempo de arranque) y anotada abajo
-- [ ] Tag `v0.1.0`
+- [x] Tag `v0.1.0`
 
 ## Fase 2 — Lector CBZ, portadas y progreso (v0.2.0)
 
@@ -172,3 +172,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - «Mostrar en carpeta» no se implementa todavía.
     - El arrastrar y soltar no se ha podido verificar de forma automática.
     - Si la biblioteca no se puede abrir al arrancar, en release el error solo se registra (no hay consola): se añadirá un archivo de log o un diálogo de error (fase 6/7).
+- Fase 1 aprobada por el usuario; tag `v0.1.0` creado.
