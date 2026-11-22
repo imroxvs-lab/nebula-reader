@@ -40,6 +40,45 @@ pub enum CoreError {
     #[error("la ruta no es Unicode válido: {0:?}")]
     NonUnicodePath(PathBuf),
 
+    /// El archivo comprimido está dañado o supera los límites de seguridad.
+    #[error("no se puede leer {path}: {reason}")]
+    Archive {
+        /// Ruta del archivo.
+        path: PathBuf,
+        /// Motivo legible.
+        reason: String,
+    },
+
+    /// El archivo no contiene ninguna página de imagen.
+    #[error("{0} no contiene ninguna imagen")]
+    NoPages(PathBuf),
+
+    /// Se pidió una página que no existe.
+    #[error("la página {index} no existe (el libro tiene {count})")]
+    PageOutOfRange {
+        /// Índice pedido (desde 0).
+        index: usize,
+        /// Número de páginas.
+        count: usize,
+    },
+
+    /// La página descomprimida supera el tamaño máximo permitido.
+    #[error("la página {index} supera el límite de {limit} bytes")]
+    PageTooLarge {
+        /// Índice de la página (desde 0).
+        index: usize,
+        /// Límite aplicado.
+        limit: u64,
+    },
+
+    /// No se pudo decodificar o codificar una imagen.
+    #[error("imagen no válida: {0}")]
+    Image(String),
+
+    /// Un dato no se pudo serializar o interpretar.
+    #[error("dato no válido: {0}")]
+    InvalidData(String),
+
     /// Fallo de SQLite.
     #[error("error de base de datos: {0}")]
     Db(#[from] rusqlite::Error),
@@ -57,6 +96,14 @@ pub enum CoreError {
 }
 
 impl CoreError {
+    /// Construye un [`CoreError::Archive`] a partir de un error del lector ZIP.
+    pub(crate) fn archive(path: &std::path::Path, error: &zip::result::ZipError) -> Self {
+        Self::Archive {
+            path: path.to_path_buf(),
+            reason: error.to_string(),
+        }
+    }
+
     /// Construye un [`CoreError::Io`] asociando el error a su ruta.
     pub fn io(path: impl Into<PathBuf>, source: std::io::Error) -> Self {
         Self::Io {

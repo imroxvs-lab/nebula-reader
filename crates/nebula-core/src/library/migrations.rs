@@ -37,6 +37,22 @@ const MIGRATIONS: &[&str] = &[
         value TEXT NOT NULL
     ) STRICT;
     ",
+    // 2: lector de cómics. Número de páginas, estado de la portada y progreso.
+    //
+    // La ruta de la miniatura no se guarda: se deriva del id (`thumbs/<id>.jpg`)
+    // para que mover la carpeta de datos no deje rutas obsoletas.
+    r"
+    ALTER TABLE books ADD COLUMN page_count INTEGER CHECK (page_count >= 0);
+    ALTER TABLE books ADD COLUMN cover_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (cover_status IN ('pending', 'ready', 'failed'));
+
+    CREATE TABLE progress (
+        book_id    INTEGER PRIMARY KEY REFERENCES books (id) ON DELETE CASCADE,
+        locator    TEXT    NOT NULL,
+        percent    REAL    NOT NULL CHECK (percent >= 0.0 AND percent <= 1.0),
+        updated_at INTEGER NOT NULL
+    ) STRICT;
+    ",
 ];
 
 /// Versión de esquema más reciente que conoce esta compilación.

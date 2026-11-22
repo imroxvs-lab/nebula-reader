@@ -3,7 +3,7 @@
 #![allow(clippy::expect_used)] // En tests, un fallo de infraestructura debe abortar con mensaje.
 
 use nebula_core::library::{InsertOutcome, Library};
-use nebula_core::{CoreError, LibraryQuery, NewBook, Timestamp};
+use nebula_core::{CoreError, CoverStatus, LibraryQuery, NewBook, Timestamp};
 
 fn new_book(path: &str) -> NewBook {
     NewBook::from_path(path, 42).expect("formato soportado")
@@ -46,7 +46,8 @@ fn reopening_does_not_reapply_migrations() {
         .expect("reabrir")
         .schema_version()
         .expect("versión");
-    assert_eq!((first, second), (1, 1));
+    assert_eq!(first, second);
+    assert!(first >= 1);
 }
 
 #[test]
@@ -85,9 +86,46 @@ fn database_from_newer_version_is_rejected() {
 
     assert!(matches!(
         Library::open(&db),
-        Err(CoreError::SchemaTooNew {
-            found: 99,
-            supported: 1
-        })
+        Err(CoreError::SchemaTooNew { found: 99, .. })
     ));
+}
+
+#[test]
+fn version_1_database_is_migrated_without_data_loss() {
+    let dir = tempfile::tempdir().expect("directorio temporal");
+    let db = dir.path().join("library.db");
+    // Esquema exacto publicado en v0.1.0 (migración 1).
+    let conn = rusqlite::Connection::open(&db).expect("crear base de datos");
+    conn.execute_batch(
+        "CREATE TABLE books (
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            title TEXT NOT NULL,
+            format TEXT NOT NULL CHECK (format IN ('cbz', 'cbr', 'cb7', 'epub', 'pdf')),
+            file_size INTEGER NOT NULL CHECK (file_size >= 0),
+            added_at INTEGER NOT NULL,
+            last_opened_at INTEGER
+        ) STRICT;
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+        INSERT INTO books (path, title, format, file_size, added_at)
+            VALUES ('C:/saga.cbz', 'Saga', 'cbz', 10, 5);
+        INSERT INTO settings VALUES ('theme', 'dark');
+        PRAGMA user_version = 1;",
+    )
+    .expect("esquema v1");
+    drop(conn);
+
+    let lib = Library::open(&db).expect("migrar");
+    let books = lib.list(&LibraryQuery::default()).expect("listar");
+    assert_eq!(
+        books
+            .iter()
+            .map(|b| (b.title.as_str(), b.page_count, b.cover, b.progress))
+            .collect::<Vec<_>>(),
+        [("Saga", None, CoverStatus::Pending, None)]
+    );
+    assert_eq!(
+        lib.setting("theme").expect("ajuste").as_deref(),
+        Some("dark")
+    );
 }

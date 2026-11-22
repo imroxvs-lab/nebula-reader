@@ -12,15 +12,20 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::domain::{
-    Book, BookFormat, BookId, BookKind, LibraryQuery, LibraryStats, NewBook, SortBy, Timestamp,
+    Book, BookFormat, BookId, BookKind, CoverStatus, LibraryQuery, LibraryStats, Locator, NewBook,
+    ReadingProgress, SortBy, Timestamp,
 };
 use crate::error::{CoreError, CoreResult};
 
 /// Tiempo máximo de espera si otro proceso tiene la base de datos bloqueada.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Columnas de `books` en el orden que espera [`book_from_row`].
-const BOOK_COLUMNS: &str = "id, path, title, format, file_size, added_at, last_opened_at";
+/// Consulta base de libros con su progreso, en el orden que espera [`book_from_row`].
+/// Las columnas de `progress` no colisionan con las de `books`, así que los
+/// filtros y órdenes pueden usar nombres sin prefijo.
+const BOOK_SELECT: &str = "SELECT b.id, b.path, b.title, b.format, b.file_size, b.added_at,
+        b.last_opened_at, b.page_count, b.cover_status, p.percent
+    FROM books b LEFT JOIN progress p ON p.book_id = b.id";
 
 /// Resultado de intentar insertar un libro.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,10 +135,7 @@ impl Library {
     /// - [`CoreError::Db`] si SQLite falla.
     pub fn get(&self, id: BookId) -> CoreResult<Book> {
         self.conn
-            .prepare_cached(
-                "SELECT id, path, title, format, file_size, added_at, last_opened_at
-                 FROM books WHERE id = ?1",
-            )?
+            .prepare_cached(&format!("{BOOK_SELECT} WHERE b.id = ?1"))?
             .query_row([id.get()], book_from_row)
             .optional()?
             .ok_or(CoreError::NotFound(id))
@@ -149,7 +151,7 @@ impl Library {
     pub fn list(&self, query: &LibraryQuery) -> CoreResult<Vec<Book>> {
         let pattern = query.search_term().map(like_pattern);
         let sql = format!(
-            "SELECT {BOOK_COLUMNS} FROM books
+            "{BOOK_SELECT}
              WHERE (?1 IS NULL OR title LIKE ?1 ESCAPE '\\')
                AND {kind}
              ORDER BY {order}
@@ -222,6 +224,121 @@ impl Library {
             return Err(CoreError::NotFound(id));
         }
         Ok(())
+    }
+
+    /// Libros empezados y no terminados, abiertos más recientemente primero.
+    ///
+    /// # Errors
+    /// [`CoreError::Db`] si SQLite falla.
+    pub fn continue_reading(&self, limit: u32) -> CoreResult<Vec<Book>> {
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "{BOOK_SELECT}
+             WHERE p.percent IS NOT NULL AND p.percent < 1.0 AND b.last_opened_at IS NOT NULL
+             ORDER BY b.last_opened_at DESC, b.id DESC
+             LIMIT ?1"
+        ))?;
+        let books = stmt
+            .query_map([limit], book_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    /// Guarda el número de páginas de un libro.
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn set_page_count(&self, id: BookId, page_count: u32) -> CoreResult<()> {
+        let updated = self
+            .conn
+            .prepare_cached("UPDATE books SET page_count = ?2 WHERE id = ?1")?
+            .execute(params![id.get(), page_count])?;
+        if updated == 0 {
+            return Err(CoreError::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Actualiza el estado de la miniatura de portada.
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn set_cover_status(&self, id: BookId, status: CoverStatus) -> CoreResult<()> {
+        let updated = self
+            .conn
+            .prepare_cached("UPDATE books SET cover_status = ?2 WHERE id = ?1")?
+            .execute(params![id.get(), status.as_str()])?;
+        if updated == 0 {
+            return Err(CoreError::NotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Guarda (o reemplaza) el progreso de lectura. `percent` se limita a 0.0–1.0.
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si el libro no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn save_progress(
+        &self,
+        id: BookId,
+        locator: Locator,
+        percent: f64,
+        at: Timestamp,
+    ) -> CoreResult<()> {
+        let percent = if percent.is_finite() {
+            percent.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let locator =
+            serde_json::to_string(&locator).map_err(|e| CoreError::InvalidData(e.to_string()))?;
+        let result = self
+            .conn
+            .prepare_cached(
+                "INSERT INTO progress (book_id, locator, percent, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (book_id) DO UPDATE SET
+                    locator = excluded.locator,
+                    percent = excluded.percent,
+                    updated_at = excluded.updated_at",
+            )?
+            .execute(params![id.get(), locator, percent, at.as_unix_seconds()]);
+        match result {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                Err(CoreError::NotFound(id))
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Progreso guardado de un libro, si existe.
+    ///
+    /// Un localizador ilegible (p. ej. de una versión futura) se trata como si
+    /// no hubiera progreso, en vez de impedir abrir el libro.
+    ///
+    /// # Errors
+    /// [`CoreError::Db`] si SQLite falla.
+    pub fn progress(&self, id: BookId) -> CoreResult<Option<ReadingProgress>> {
+        let row: Option<(String, f64, i64)> = self
+            .conn
+            .prepare_cached("SELECT locator, percent, updated_at FROM progress WHERE book_id = ?1")?
+            .query_row([id.get()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .optional()?;
+        Ok(row.and_then(|(locator, percent, updated_at)| {
+            let locator = serde_json::from_str(&locator).ok()?;
+            Some(ReadingProgress {
+                locator,
+                percent,
+                updated_at: Timestamp::from_unix_seconds(updated_at),
+            })
+        }))
     }
 
     /// Valor de un ajuste, si existe.
@@ -307,6 +424,11 @@ fn book_from_row(row: &Row<'_>) -> rusqlite::Result<Book> {
         last_opened_at: row
             .get::<_, Option<i64>>(6)?
             .map(Timestamp::from_unix_seconds),
+        page_count: row
+            .get::<_, Option<i64>>(7)?
+            .and_then(|count| u32::try_from(count).ok()),
+        cover: CoverStatus::from_db(&row.get::<_, String>(8)?),
+        progress: row.get(9)?,
     })
 }
 
@@ -380,6 +502,9 @@ mod tests {
                 file_size: 100,
                 added_at: Timestamp::from_unix_seconds(1_000),
                 last_opened_at: None,
+                page_count: None,
+                cover: CoverStatus::Pending,
+                progress: None,
             })
         );
     }
@@ -554,6 +679,121 @@ mod tests {
     #[test]
     fn stats_of_empty_library_are_zero() {
         assert_eq!(library().stats().ok(), Some(LibraryStats::default()));
+    }
+
+    fn page(index: u32) -> Locator {
+        Locator::Page { index }
+    }
+
+    #[test]
+    fn progress_roundtrips() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        let at = Timestamp::from_unix_seconds(50);
+        assert!(lib.save_progress(id, page(4), 0.25, at).is_ok());
+        assert_eq!(
+            lib.progress(id).ok().flatten(),
+            Some(ReadingProgress {
+                locator: page(4),
+                percent: 0.25,
+                updated_at: at
+            })
+        );
+    }
+
+    #[test]
+    fn progress_is_overwritten() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        let at = Timestamp::from_unix_seconds(1);
+        assert!(lib.save_progress(id, page(1), 0.1, at).is_ok());
+        assert!(lib.save_progress(id, page(9), 0.9, at).is_ok());
+        assert_eq!(
+            lib.progress(id).ok().flatten().map(|p| p.locator),
+            Some(page(9))
+        );
+    }
+
+    #[test]
+    fn progress_percent_is_clamped() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        assert!(
+            lib.save_progress(id, page(1), 7.0, Timestamp::from_unix_seconds(1))
+                .is_ok()
+        );
+        assert_eq!(
+            lib.progress(id).ok().flatten().map(|p| p.percent),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn progress_for_missing_book_is_not_found() {
+        assert!(matches!(
+            library().save_progress(
+                BookId::new(3),
+                page(0),
+                0.0,
+                Timestamp::from_unix_seconds(1)
+            ),
+            Err(CoreError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn progress_is_listed_with_book() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        assert!(
+            lib.save_progress(id, page(1), 0.5, Timestamp::from_unix_seconds(1))
+                .is_ok()
+        );
+        assert_eq!(lib.get(id).ok().and_then(|b| b.progress), Some(0.5));
+    }
+
+    #[test]
+    fn removing_book_removes_progress() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        assert!(
+            lib.save_progress(id, page(1), 0.5, Timestamp::from_unix_seconds(1))
+                .is_ok()
+        );
+        assert!(lib.remove(id).is_ok());
+        let id2 = insert(&lib, "C:/a.cbz", 2);
+        assert_eq!(lib.progress(id2).ok(), Some(None));
+    }
+
+    #[test]
+    fn continue_reading_lists_unfinished_recent_first() {
+        let lib = library();
+        let at = Timestamp::from_unix_seconds(1);
+        let old = insert(&lib, "C:/old.cbz", 1);
+        let recent = insert(&lib, "C:/recent.cbz", 2);
+        let finished = insert(&lib, "C:/finished.cbz", 3);
+        insert(&lib, "C:/untouched.cbz", 4);
+        for (id, percent, opened) in [(old, 0.3, 10), (recent, 0.6, 20), (finished, 1.0, 30)] {
+            assert!(lib.save_progress(id, page(1), percent, at).is_ok());
+            assert!(
+                lib.mark_opened(id, Timestamp::from_unix_seconds(opened))
+                    .is_ok()
+            );
+        }
+        let books = lib.continue_reading(10).unwrap_or_default();
+        assert_eq!(titles(&books), ["recent", "old"]);
+    }
+
+    #[test]
+    fn page_count_and_cover_status_are_stored() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        assert!(lib.set_page_count(id, 24).is_ok());
+        assert!(lib.set_cover_status(id, CoverStatus::Ready).is_ok());
+        assert_eq!(
+            lib.get(id).ok().map(|b| (b.page_count, b.cover)),
+            Some((Some(24), CoverStatus::Ready))
+        );
     }
 
     #[test]

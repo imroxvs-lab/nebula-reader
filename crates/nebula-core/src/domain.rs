@@ -149,7 +149,7 @@ impl FromStr for BookFormat {
 }
 
 /// Libro almacenado en la biblioteca.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Book {
     /// Identificador en la biblioteca.
@@ -166,6 +166,68 @@ pub struct Book {
     pub added_at: Timestamp,
     /// Última vez que se abrió, si alguna.
     pub last_opened_at: Option<Timestamp>,
+    /// Número de páginas, si ya se conoce (se calcula al abrirlo o al generar la portada).
+    pub page_count: Option<u32>,
+    /// Estado de la miniatura de portada.
+    pub cover: CoverStatus,
+    /// Fracción leída (0.0–1.0), si se ha empezado a leer.
+    pub progress: Option<f64>,
+}
+
+/// Estado de la miniatura de portada de un libro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CoverStatus {
+    /// Aún no se ha intentado generar.
+    #[default]
+    Pending,
+    /// La miniatura está en la caché.
+    Ready,
+    /// No se pudo generar (archivo dañado o formato no compatible); no se reintenta.
+    Failed,
+}
+
+impl CoverStatus {
+    /// Representación persistida.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Ready => "ready",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// Interpreta la representación persistida; valores desconocidos cuentan como pendientes.
+    pub fn from_db(value: &str) -> Self {
+        match value {
+            "ready" => Self::Ready,
+            "failed" => Self::Failed,
+            _ => Self::Pending,
+        }
+    }
+}
+
+/// Posición de lectura dentro de un libro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum Locator {
+    /// Página de un cómic o documento paginado (índice desde 0).
+    Page {
+        /// Índice de la página.
+        index: u32,
+    },
+}
+
+/// Progreso de lectura guardado.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingProgress {
+    /// Dónde se quedó el lector.
+    pub locator: Locator,
+    /// Fracción leída (0.0–1.0).
+    pub percent: f64,
+    /// Cuándo se guardó.
+    pub updated_at: Timestamp,
 }
 
 impl Book {
