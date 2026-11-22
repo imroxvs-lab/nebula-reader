@@ -1,6 +1,6 @@
 {
   "name": "nebula-reader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lector de libros y cómics electrónicos para Windows 11",
   "type": "module",
   "scripts": {

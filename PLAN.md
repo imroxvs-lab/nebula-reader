@@ -56,7 +56,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] Línea base medida en release (RAM en reposo, tiempo de arranque) y anotada abajo
 - [x] Tag `v0.1.0`
 
-## Fase 2 — Lector CBZ, portadas y progreso (v0.2.0)
+## Fase 2 — Lector CBZ, portadas y progreso (v0.2.0) ✅
 
 ### Tareas
 - [x] 2.1 `ComicArchive` con backend zip, orden natural, filtro de imágenes, límites anti zip-bomb + tests (proptest)
@@ -71,7 +71,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] Cómic de 200+ páginas fluido; progreso se restaura al reabrir
 - [x] Zip corrupto y rutas `..` manejados sin fallo
 - [x] RAM en lectura medida y anotada
-- [ ] Tag `v0.2.0`
+- [x] Tag `v0.2.0`
 
 ## Fase 3 — EPUB (v0.3.0)
 
@@ -187,4 +187,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
   - **Pendiente o limitado**:
     - Portadas AVIF: no hay decodificador AVIF (evita una dependencia nativa) y se usa la provisional; las páginas AVIF sí se muestran, porque las decodifica WebView2.
     - No se leen los metadatos `ComicInfo.xml` (título, serie, autor): candidato para la fase 3 junto con los metadatos de EPUB.
-    - La versión de la app (0.1.0 en el instalador) se sube a 0.2.0 al crear el tag.
+- Fase 2 aprobada por el usuario; versión subida a 0.2.0 (`Cargo.toml`, `tauri.conf.json`, `package.json`) y tag `v0.2.0` creado.
