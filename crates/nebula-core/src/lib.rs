@@ -5,6 +5,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod domain;
+pub mod error;
+
+pub use domain::{
+    Book, BookFormat, BookId, BookKind, ImportFailure, ImportReport, LibraryQuery, NewBook, SortBy,
+    Timestamp, title_from_path,
+};
+pub use error::{CoreError, CoreResult};
+
 /// Versión del núcleo, expuesta para diagnósticos en la interfaz.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
