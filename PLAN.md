@@ -3,6 +3,11 @@
 Lector de libros y cómics electrónicos para Windows 11, en Rust + Tauri 2.
 Objetivo: diseño moderno (estilo Windows 11, Mica), bajo consumo de RAM y recursos.
 
+Objetivos de recursos (medidos en release, memoria privada total = app + procesos WebView2):
+- Reposo: no superar en más de ~30 MB la línea base de v0.1.0 (~152 MB, que corresponde casi entera a WebView2; el proceso Rust usa ~5 MB).
+- Lectura: crecimiento acotado y estable al pasar páginas (sin fugas).
+- Instalador NSIS: < 10 MB sin pdfium (v0.1.0: 1,12 MiB).
+
 ## Cómo usar este plan
 Estados de una tarea:
 - `[ ]` pendiente
@@ -15,6 +20,9 @@ Reglas:
    `npm run check` y `npm run build`.
 2. Cada petición de revisión incluye: cambios realizados, checks ejecutados, lo no verificado
    y los pasos exactos para que el usuario lo pruebe.
+   Si la tarea afecta a la interfaz, antes de pedir revisión el asistente compila en release,
+   abre la app, toma una captura y mide arranque y RAM con `scripts/measure.ps1`.
+   Esto no sustituye a la prueba del usuario.
 3. Una casilla solo se marca `[x]` tras la aprobación explícita del usuario, en el commit de esa tarea.
 4. Si el usuario no queda conforme, la tarea vuelve a `[ ]` con una nota de lo que hay que corregir.
 5. Una fase se marca ✅ y se crea su tag solo cuando todas sus casillas están aprobadas.
@@ -22,7 +30,7 @@ Reglas:
 
 ## Arquitectura (decisiones fijas)
 - Workspace Cargo: `crates/nebula-core` (lib sin Tauri: dominio, formatos, SQLite) + `src-tauri` (bin fino).
-- Frontend: Svelte 5 + TypeScript + Vite (SvelteKit en modo SPA con `adapter-static`, plantilla oficial de Tauri).
+- Frontend: Svelte 5 + TypeScript + Vite con **SvelteKit 3** en modo SPA (`adapter-static` 4, `ssr = false`). En SvelteKit 3 no existe `svelte.config.js`: la configuración se pasa a `sveltekit({...})` en `vite.config.js`, y `tsconfig.json` extiende `$app/tsconfig`.
 - Bytes de páginas y recursos servidos por el protocolo `nebula://` (nunca base64 por IPC).
 - Despacho por enum (`OpenDocument`, `ArchiveBackend`), no `dyn`.
 - SQLite con `rusqlite` (`bundled`) y migraciones numeradas vía `PRAGMA user_version`.
@@ -141,8 +149,10 @@ Reglas:
 ## Métricas de rendimiento
 | Versión | RAM reposo | RAM lectura | Arranque | Tamaño instalador |
 |---------|-----------|-------------|----------|-------------------|
-| v0.1.0  |           |             |          |                   |
+| v0.1.0 (scaffold 1.1, preliminar) | 152 MB privada (app 5 MB + WebView2 147 MB); 337 MB working set | — | ~250–380 ms hasta ventana visible | 1,12 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
-- 1.1: `npm audit` informa de vulnerabilidades en `@sveltejs/kit` 2.x y `cookie` que afectan solo a funciones de servidor (SSR, formularios, remote functions), que no se usan en una SPA estática. Para corregirlas hay que pasar a SvelteKit 3, un cambio mayor que queda pendiente de decisión.
+- 1.1: `npm audit` informaba de vulnerabilidades en `@sveltejs/kit` 2.x y `cookie`. Por decisión del usuario se migra a **SvelteKit 3.4** + `adapter-static` 4. Se elimina `svelte.config.js`, se mueve la configuración a `vite.config.js` y `tsconfig.json` pasa a extender `$app/tsconfig`. Ahora `npm audit` da 0 vulnerabilidades.
+- 1.1: el objetivo inicial de "< 120 MB de RAM" no es realista con WebView2: solo el runtime ya consume ~147 MB de memoria privada con una página vacía. Se sustituye por objetivos relativos a la línea base (ver arriba).
+- 1.1: se añade la verificación automática de la interfaz (captura de pantalla + medición de RAM/arranque) antes de pedir revisión. Gracias a ella se detectó y corrigió una barra de scroll espuria en la página inicial.

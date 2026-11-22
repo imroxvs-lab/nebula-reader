@@ -24,8 +24,18 @@
     color-scheme: light dark;
   }
 
+  :global(*, *::before, *::after) {
+    box-sizing: border-box;
+  }
+
+  :global(html, body) {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
   main {
-    min-height: 100vh;
+    height: 100%;
     display: grid;
     place-content: center;
     text-align: center;

@@ -7,7 +7,7 @@ El plan de desarrollo por fases está en [PLAN.md](PLAN.md).
 ## Estructura
 - `crates/nebula-core`: dominio, formatos y biblioteca (sin Tauri).
 - `src-tauri`: capa de aplicación Tauri (comandos e IPC).
-- `src`: interfaz con Svelte 5 + TypeScript (SvelteKit en modo SPA).
+- `src`: interfaz con Svelte 5 + TypeScript (SvelteKit 3 en modo SPA).
 
 ## Requisitos (Windows)
 - Rust stable (MSVC) y Microsoft C++ Build Tools
