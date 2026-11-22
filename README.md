@@ -20,6 +20,20 @@ npm install
 npm run tauri dev
 ```
 
+## Datos de la aplicación
+- Biblioteca: `%LOCALAPPDATA%\com.nebulareader.reader\library.db` (SQLite)
+- Estado de la ventana: `%APPDATA%\com.nebulareader.reader\.window-state.json`
+
+## Herramientas de desarrollo
+```powershell
+# Importar rutas en una biblioteca sin abrir la interfaz
+cargo run -p nebula-core --example import -- "$env:LOCALAPPDATA\com.nebulareader.reader\library.db" C:\ruta\a\comics
+
+# Medir arranque y memoria de la build release (y guardar una captura)
+npm run tauri build -- --no-bundle
+powershell -ExecutionPolicy Bypass -File scripts\measure.ps1
+```
+
 ## Comprobaciones
 ```powershell
 cargo fmt --all

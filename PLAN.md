@@ -3,10 +3,11 @@
 Lector de libros y cómics electrónicos para Windows 11, en Rust + Tauri 2.
 Objetivo: diseño moderno (estilo Windows 11, Mica), bajo consumo de RAM y recursos.
 
-Objetivos de recursos (medidos en release, memoria privada total = app + procesos WebView2):
-- Reposo: no superar en más de ~30 MB la línea base de v0.1.0 (~152 MB, que corresponde casi entera a WebView2; el proceso Rust usa ~5 MB).
+Objetivos de recursos (medidos en release con `scripts/measure.ps1`, suma de la app y de sus procesos WebView2):
+- **Métrica principal: working set privado**, que es la columna «Memoria» del Administrador de tareas. El *commit* se anota como dato secundario: en el proceso GPU incluye reservas de Direct3D que no ocupan RAM física.
+- Reposo: no superar en más de ~30 MB la línea base de v0.1.0 (~82 MB vacía, ~86 MB con 21 elementos).
 - Lectura: crecimiento acotado y estable al pasar páginas (sin fugas).
-- Instalador NSIS: < 10 MB sin pdfium (v0.1.0: 1,12 MiB).
+- Instalador NSIS: < 10 MB sin pdfium (v0.1.0: 1,80 MiB).
 
 ## Cómo usar este plan
 Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
@@ -41,18 +42,18 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] 1.1 Scaffold con `create-tauri-app` (SvelteKit 3 + TS) desde Windows; convertir a workspace; crear `crates/nebula-core`; lints, `[profile.release]` (lto, codegen-units=1, opt-level="s", strip, panic=abort), `.gitignore`, `git init`
 - [x] 1.2 Dominio y errores: `BookId`, `BookFormat` (detección por extensión), `BookKind`, `Book`, `NewBook`, `SortBy`, `LibraryQuery`, `ImportReport`, `CoreError` + tests
 - [x] 1.3 SQLite: `Library` (open / open_in_memory), migración 1 (`books`, `settings`, WAL, foreign_keys), CRUD, búsqueda/filtro/orden, settings + tests
-- [ ] 1.4 Importación de archivos/carpetas (`walkdir`), filtro de formatos, duplicados, título desde nombre de archivo, `ImportReport` + tests
-- [ ] 1.5 Capa Tauri: `AppState`, comandos `library_list/import/remove`, `settings_get/set`, `CommandError`, BD en AppData, capabilities y CSP, plugins dialog y window-state
-- [ ] 1.6 Shell UI: TitleBar propia, Mica, Sidebar, tema claro/oscuro/sistema persistido
-- [ ] 1.7 Pantalla de inicio y biblioteca: HomeView (recientes, estado vacío), LibraryView (búsqueda, orden, filtro), BookCard con portada provisional
-- [ ] 1.8 Importación desde UI (diálogo de archivos/carpeta, drag&drop), toasts, quitar libro
+- [x] 1.4 Importación de archivos/carpetas (`walkdir`), filtro de formatos, duplicados, título desde nombre de archivo, `ImportReport` + tests
+- [x] 1.5 Capa Tauri: `AppState`, comandos `library_list/import/remove`, `settings_get/set`, `CommandError`, BD en AppData, capabilities y CSP, plugins dialog y window-state
+- [x] 1.6 Shell UI: TitleBar propia, Mica, Sidebar, tema claro/oscuro/sistema persistido
+- [x] 1.7 Pantalla de inicio y biblioteca: HomeView (recientes, estado vacío), LibraryView (búsqueda, orden, filtro), BookCard con portada provisional
+- [x] 1.8 Importación desde UI (diálogo de archivos/carpeta, drag&drop), toasts, quitar libro
 
 ### Validación
-- [ ] Checks automáticos en verde
-- [ ] Importar archivos mixtos y carpeta; los no soportados se informan
-- [ ] Cerrar y reabrir: biblioteca, tema y ventana persisten
-- [ ] Duplicados ignorados; búsqueda/orden/filtro correctos
-- [ ] Línea base medida en release (RAM en reposo, tiempo de arranque) y anotada abajo
+- [x] Checks automáticos en verde
+- [x] Importar archivos mixtos y carpeta; los no soportados se informan
+- [x] Cerrar y reabrir: biblioteca, tema y ventana persisten
+- [x] Duplicados ignorados; búsqueda/orden/filtro correctos
+- [x] Línea base medida en release (RAM en reposo, tiempo de arranque) y anotada abajo
 - [ ] Tag `v0.1.0`
 
 ## Fase 2 — Lector CBZ, portadas y progreso (v0.2.0)
@@ -145,7 +146,8 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Métricas de rendimiento
 | Versión | RAM reposo | RAM lectura | Arranque | Tamaño instalador |
 |---------|-----------|-------------|----------|-------------------|
-| v0.1.0 (scaffold 1.1, preliminar) | 152 MB privada (app 5 MB + WebView2 147 MB); 337 MB working set | — | ~250–380 ms hasta ventana visible | 1,12 MiB |
+| v0.1.0 (scaffold 1.1, preliminar) | 152 MB *commit* (métrica antigua) | — | ~250–380 ms | 1,12 MiB |
+| v0.1.0 (fase 1 completa) | **82 MB** privateWS vacía / **86 MB** con 21 elementos (*commit* 170 / 252 MB) | — | ~85–130 ms hasta ventana visible | 1,80 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -157,3 +159,16 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - 1.3: `books.path` usa `COLLATE NOCASE` porque en Windows las rutas no distinguen mayúsculas. Las tablas son `STRICT` y `format` tiene un `CHECK` con los formatos válidos. Se añade `CoreError::NonUnicodePath` (rutas no almacenables) y `CoreError::SchemaTooNew` (base de datos de una versión futura de la app).
 - 1.3: limitación conocida: la búsqueda usa `LIKE`, que solo ignora mayúsculas en ASCII (`cómic` no encuentra `CÓMIC`). Se valorará FTS5 o normalización de acentos en la fase 6 si molesta.
 - Tras la 1.3: cambia el flujo de trabajo a revisión por fases (ver "Cómo usar este plan").
+- Fase 1 (1.4–1.8):
+  - **SvelteKit 3 eliminó el alias `$lib`.** Se usa `#lib` mediante `imports` en `package.json`, y los módulos `.ts` se importan con extensión explícita (`#lib/api.ts`, `#lib/stores/x.svelte.ts`).
+  - **Identificador** cambiado de `com.nebulareader.app` a `com.nebulareader.reader`: Tauri avisa de que acabar en `.app` choca con macOS, y aún no había datos de usuario. Datos: `%LOCALAPPDATA%\com.nebulareader.reader\library.db`; estado de ventana en `%APPDATA%\com.nebulareader.reader`.
+  - **Añadidos no previstos**: `LibraryQuery.limit`, `LibraryStats` y el comando `library_stats` (contadores de la barra lateral e inicio); `Library::add_scanned` separa el recorrido del disco (sin bloquear la biblioteca) de la inserción (una transacción); ejemplo de desarrollo `cargo run -p nebula-core --example import -- <db> <rutas>`.
+  - **Importación**: en las carpetas, los archivos no soportados se ignoran sin contarlos (evita ruido por imágenes y notas); solo cuentan los seleccionados explícitamente. No se siguen enlaces simbólicos.
+  - **Ajustes**: el frontend solo puede leer y escribir claves de una lista blanca (`theme`), con límite de tamaño.
+  - **Métrica de RAM**: se pasa del *commit* al working set privado. Las sombras difuminadas permanentes y los degradados radiales de las portadas provisionales subían ~40–70 MB el *commit* del proceso GPU sin cambiar la RAM real; aun así se sustituyeron por degradados lineales y un borde (sombra solo al pasar el ratón) para gastar menos memoria GPU. `backdrop-filter` se evita en elementos repetidos.
+  - **Accesibilidad**: los glifos de icono llevan `aria-hidden` y las tarjetas un `aria-label` conciso (detectado al inspeccionar el árbol de UI Automation).
+  - **Pendiente o limitado**:
+    - Pulsar una tarjeta muestra un aviso: el lector llega en la fase 2.
+    - «Mostrar en carpeta» no se implementa todavía.
+    - El arrastrar y soltar no se ha podido verificar de forma automática.
+    - Si la biblioteca no se puede abrir al arrancar, en release el error solo se registra (no hay consola): se añadirá un archivo de log o un diálogo de error (fase 6/7).
