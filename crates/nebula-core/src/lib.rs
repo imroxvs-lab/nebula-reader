@@ -7,12 +7,14 @@
 
 pub mod domain;
 pub mod error;
+pub mod library;
 
 pub use domain::{
     Book, BookFormat, BookId, BookKind, ImportFailure, ImportReport, LibraryQuery, NewBook, SortBy,
     Timestamp, title_from_path,
 };
 pub use error::{CoreError, CoreResult};
+pub use library::{InsertOutcome, Library};
 
 /// Versión del núcleo, expuesta para diagnósticos en la interfaz.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

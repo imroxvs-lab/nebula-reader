@@ -44,7 +44,7 @@ Reglas:
 ### Tareas
 - [x] 1.1 Scaffold con `create-tauri-app` (SvelteKit 3 + TS) desde Windows; convertir a workspace; crear `crates/nebula-core`; lints, `[profile.release]` (lto, codegen-units=1, opt-level="s", strip, panic=abort), `.gitignore`, `git init`
 - [x] 1.2 Dominio y errores: `BookId`, `BookFormat` (detección por extensión), `BookKind`, `Book`, `NewBook`, `SortBy`, `LibraryQuery`, `ImportReport`, `CoreError` + tests
-- [ ] 1.3 SQLite: `Library` (open / open_in_memory), migración 1 (`books`, `settings`, WAL, foreign_keys), CRUD, búsqueda/filtro/orden, settings + tests
+- [ ] 🔍 en revisión — 1.3 SQLite: `Library` (open / open_in_memory), migración 1 (`books`, `settings`, WAL, foreign_keys), CRUD, búsqueda/filtro/orden, settings + tests
 - [ ] 1.4 Importación de archivos/carpetas (`walkdir`), filtro de formatos, duplicados, título desde nombre de archivo, `ImportReport` + tests
 - [ ] 1.5 Capa Tauri: `AppState`, comandos `library_list/import/remove`, `settings_get/set`, `CommandError`, BD en AppData, capabilities y CSP, plugins dialog y window-state
 - [ ] 1.6 Shell UI: TitleBar propia, Mica, Sidebar, tema claro/oscuro/sistema persistido
@@ -157,3 +157,6 @@ Reglas:
 - 1.1: el objetivo inicial de "< 120 MB de RAM" no es realista con WebView2: solo el runtime ya consume ~147 MB de memoria privada con una página vacía. Se sustituye por objetivos relativos a la línea base (ver arriba).
 - 1.1: se añade la verificación automática de la interfaz (captura de pantalla + medición de RAM/arranque) antes de pedir revisión. Gracias a ella se detectó y corrigió una barra de scroll espuria en la página inicial.
 - 1.2: además de lo previsto, se añaden `Timestamp` (segundos Unix) e `ImportFailure` (ruta + motivo), que es lo que guarda la lista `failures` de `ImportReport`. La variante `CoreError::Db` se pospone a la 1.3, cuando entra `rusqlite`. La detección de formato por magic bytes se aplaza a los lectores de cada formato (fases 2–5): para importar basta con la extensión.
+- 1.3: se usa `rusqlite` 0.43, que exige Rust 1.89, así que el MSRV del workspace sube de 1.85 a 1.89 (el valor anterior era arbitrario; se compila con stable). `tracing` entra ya en `nebula-core` para registrar las migraciones.
+- 1.3: `books.path` usa `COLLATE NOCASE` porque en Windows las rutas no distinguen mayúsculas. Las tablas son `STRICT` y `format` tiene un `CHECK` con los formatos válidos. Se añade `CoreError::NonUnicodePath` (rutas no almacenables) y `CoreError::SchemaTooNew` (base de datos de una versión futura de la app).
+- 1.3: limitación conocida: la búsqueda usa `LIKE`, que solo ignora mayúsculas en ASCII (`cómic` no encuentra `CÓMIC`). Se valorará FTS5 o normalización de acentos en la fase 6 si molesta.

@@ -6,7 +6,7 @@ use crate::domain::BookId;
 
 /// Error de cualquier operación de `nebula-core`.
 ///
-/// Las variantes de base de datos y de formatos se añadirán en las tareas que
+/// Las variantes de los lectores de formatos se añadirán en las tareas que
 /// introducen esas capacidades.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -35,6 +35,25 @@ pub enum CoreError {
     /// No existe ningún libro con ese identificador.
     #[error("no existe el libro {0}")]
     NotFound(BookId),
+
+    /// La ruta no es Unicode válido y no se puede almacenar en la biblioteca.
+    #[error("la ruta no es Unicode válido: {0:?}")]
+    NonUnicodePath(PathBuf),
+
+    /// Fallo de SQLite.
+    #[error("error de base de datos: {0}")]
+    Db(#[from] rusqlite::Error),
+
+    /// La base de datos la creó una versión más nueva de la aplicación.
+    #[error(
+        "la biblioteca usa el esquema {found}, pero esta versión solo admite hasta el {supported}; actualiza Nebula Reader"
+    )]
+    SchemaTooNew {
+        /// Versión encontrada en la base de datos.
+        found: u32,
+        /// Versión máxima conocida por esta compilación.
+        supported: u32,
+    },
 }
 
 impl CoreError {
