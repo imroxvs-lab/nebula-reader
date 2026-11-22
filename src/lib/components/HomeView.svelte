@@ -9,13 +9,20 @@
   import EmptyState from "./EmptyState.svelte";
 
   const RECENT_LIMIT = 12;
+  const CONTINUE_LIMIT = 6;
   let recent = $state<Book[]>([]);
+  let reading = $state<Book[]>([]);
 
   $effect(() => {
     void library.revision;
-    api
-      .listBooks({ sort: "addedAt", limit: RECENT_LIMIT })
-      .then((books) => (recent = books))
+    Promise.all([
+      api.listBooks({ sort: "addedAt", limit: RECENT_LIMIT }),
+      api.continueReading(CONTINUE_LIMIT),
+    ])
+      .then(([recentBooks, readingBooks]) => {
+        recent = recentBooks;
+        reading = readingBooks;
+      })
       .catch((error) => toasts.show("error", "No se pudo cargar la biblioteca", errorMessage(error)));
   });
 
@@ -33,7 +40,16 @@
 
 {#if library.statsLoaded && library.total === 0}
   <EmptyState />
-{:else if recent.length > 0}
+{:else}
+  {#if reading.length > 0}
+    <section class="continue">
+      <div class="section-head">
+        <h2>Continuar leyendo</h2>
+      </div>
+      <BookGrid books={reading} />
+    </section>
+  {/if}
+  {#if recent.length > 0}
   <section>
     <div class="section-head">
       <h2>Añadidos recientemente</h2>
@@ -45,6 +61,7 @@
     </div>
     <BookGrid books={recent} />
   </section>
+  {/if}
 {/if}
 
 <style>
@@ -63,6 +80,10 @@
   .hero p {
     margin: 4px 0 0;
     color: var(--text-secondary);
+  }
+
+  .continue {
+    margin-bottom: 28px;
   }
 
   .section-head {

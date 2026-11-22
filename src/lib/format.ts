@@ -43,3 +43,13 @@ export function hueFromText(text: string): number {
   }
   return Math.abs(hash) % 360;
 }
+
+const percentFormatter = new Intl.NumberFormat("es-ES", {
+  style: "percent",
+  maximumFractionDigits: 0,
+});
+
+/** Fracción (0–1) como porcentaje: `0.42` → «42 %». */
+export function formatPercent(fraction: number): string {
+  return percentFormatter.format(fraction);
+}

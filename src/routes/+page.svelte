@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ComicReader from "#lib/components/ComicReader.svelte";
   import DropOverlay from "#lib/components/DropOverlay.svelte";
   import HomeView from "#lib/components/HomeView.svelte";
   import LibraryView from "#lib/components/LibraryView.svelte";
@@ -17,6 +18,7 @@
   });
 
   function onKeydown(event: KeyboardEvent) {
+    if (nav.reading) return;
     if (event.ctrlKey && event.key.toLowerCase() === "o") {
       event.preventDefault();
       void (event.shiftKey ? library.pickFolder() : library.pickFiles());
@@ -33,7 +35,14 @@
 <svelte:window onkeydown={onKeydown} oncontextmenu={onContextMenu} />
 
 <div class="app">
-  <TitleBar />
+  {#if !nav.fullscreen}
+    <TitleBar title={nav.reading?.title ?? null} />
+  {/if}
+  {#if nav.reading}
+    {#key nav.reading.id}
+      <ComicReader book={nav.reading} />
+    {/key}
+  {:else}
   <div class="body">
     <Sidebar />
     <main class="content">
@@ -46,6 +55,7 @@
       {/if}
     </main>
   </div>
+  {/if}
 </div>
 
 <DropOverlay />

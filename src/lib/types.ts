@@ -14,6 +14,26 @@ export interface Book {
   /** Segundos Unix. */
   addedAt: number;
   lastOpenedAt: number | null;
+  pageCount: number | null;
+  cover: CoverStatus;
+  /** Fracción leída (0–1), o `null` si no se ha empezado. */
+  progress: number | null;
+}
+
+export type CoverStatus = "pending" | "ready" | "failed";
+
+export type Locator = { type: "page"; index: number };
+
+export interface ReadingProgress {
+  locator: Locator;
+  percent: number;
+  updatedAt: number;
+}
+
+export interface OpenedBook {
+  book: Book;
+  pageCount: number;
+  progress: ReadingProgress | null;
 }
 
 export interface LibraryQuery {
@@ -40,7 +60,14 @@ export interface ImportReport {
   failures: ImportFailure[];
 }
 
-export type ErrorCode = "notFound" | "invalidInput" | "database" | "io" | "internal";
+export type ErrorCode =
+  | "notFound"
+  | "invalidInput"
+  | "database"
+  | "io"
+  | "invalidFile"
+  | "unsupported"
+  | "internal";
 
 export interface CommandError {
   code: ErrorCode;
@@ -48,3 +75,5 @@ export interface CommandError {
 }
 
 export type ThemePreference = "system" | "light" | "dark";
+
+export type FitMode = "page" | "width" | "original";

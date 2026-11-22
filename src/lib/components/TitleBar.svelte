@@ -2,6 +2,8 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import Logo from "./Logo.svelte";
 
+  let { title = null }: { title?: string | null } = $props();
+
   const appWindow = getCurrentWindow();
   let maximized = $state(false);
 
@@ -17,7 +19,9 @@
 <header class="titlebar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region>
     <Logo size={16} />
-    <span data-tauri-drag-region>Nebula Reader</span>
+    <span data-tauri-drag-region>
+      {#if title}<span class="book" data-tauri-drag-region>{title}</span>{" · "}{/if}Nebula Reader
+    </span>
   </div>
 
   <div class="controls">
@@ -53,6 +57,10 @@
     padding-left: 16px;
     font-size: 12px;
     color: var(--text-secondary);
+  }
+
+  .book {
+    color: var(--text);
   }
 
   .brand :global(svg) {

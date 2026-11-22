@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { formatSize, hueFromText, kindOf } from "#lib/format.ts";
+  import { coverUrl, hasCover } from "#lib/api.ts";
+  import { formatPercent, formatSize, hueFromText, kindOf } from "#lib/format.ts";
   import type { Book } from "#lib/types.ts";
 
   let {
@@ -14,6 +15,14 @@
 
   const hue = $derived(hueFromText(book.title));
   const comic = $derived(kindOf(book.format) === "comic");
+  let coverLoaded = $state(false);
+  let coverFailed = $state(false);
+  const showCover = $derived(hasCover(book) && !coverFailed);
+  const subtitle = $derived(
+    book.progress !== null
+      ? `${formatPercent(book.progress)} leído`
+      : `${comic ? "Cómic" : "Libro"} · ${formatSize(book.fileSize)}`,
+  );
 
   function contextMenu(event: MouseEvent) {
     event.preventDefault();
@@ -27,34 +36,50 @@
   }
 </script>
 
-<div
-  class="card"
-  role="button"
-  tabindex="0"
-  title={book.path}
-  aria-label="{book.title}, {comic ? 'cómic' : 'libro'} {book.format.toUpperCase()}"
-  onclick={() => onopen(book)}
-  onkeydown={(e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onopen(book);
-    } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
-      e.preventDefault();
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      onmenu(book, rect.left + 12, rect.top + 12);
-    }
-  }}
-  oncontextmenu={contextMenu}
->
-  <div class="cover" class:comic style:--hue={hue} aria-hidden="true">
-    <span class="cover-title">{book.title}</span>
-    <span class="badge">{book.format.toUpperCase()}</span>
-  </div>
-  <div class="meta" aria-hidden="true">
-    <div class="title">{book.title}</div>
-    <div class="sub">{comic ? "Cómic" : "Libro"} · {formatSize(book.fileSize)}</div>
-  </div>
-  <button class="more" aria-label="Más opciones" title="Más opciones" onclick={moreButton}>
+<!-- Dos botones hermanos (abrir y más opciones): un botón no puede contener a
+     otro sin que este quede oculto para los lectores de pantalla. -->
+<div class="card" oncontextmenu={contextMenu} role="presentation">
+  <button
+    class="open"
+    title={book.path}
+    aria-label="{book.title}, {comic ? 'cómic' : 'libro'} {book.format.toUpperCase()}{book.progress !== null
+      ? `, ${formatPercent(book.progress)} leído`
+      : ''}"
+    onclick={() => onopen(book)}
+    onkeydown={(e) => {
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        e.preventDefault();
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        onmenu(book, rect.left + 12, rect.top + 12);
+      }
+    }}
+  >
+    <span class="cover" class:comic style:--hue={hue} aria-hidden="true">
+      <span class="cover-title">{book.title}</span>
+      {#if showCover}
+        <img
+          class="cover-image"
+          class:loaded={coverLoaded}
+          src={coverUrl(book)}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+          onload={() => (coverLoaded = true)}
+          onerror={() => (coverFailed = true)}
+        />
+      {/if}
+      <span class="badge">{book.format.toUpperCase()}</span>
+      {#if book.progress !== null}
+        <span class="progress"><span style:width="{book.progress * 100}%"></span></span>
+      {/if}
+    </span>
+    <span class="meta" aria-hidden="true">
+      <span class="title">{book.title}</span>
+      <span class="sub">{subtitle}</span>
+    </span>
+  </button>
+  <button class="more" aria-label="Más opciones de {book.title}" title="Más opciones" onclick={moreButton}>
     <span class="icon" aria-hidden="true">&#xE712;</span>
   </button>
 </div>
@@ -62,10 +87,6 @@
 <style>
   .card {
     position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 8px 8px 10px;
     border-radius: var(--radius-md);
     transition: background var(--duration) var(--ease);
     content-visibility: auto;
@@ -76,8 +97,27 @@
     background: var(--subtle-hover);
   }
 
-  .card:active {
+  .card:has(.open:active) {
     background: var(--subtle-pressed);
+  }
+
+  .open {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 8px 10px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    text-align: left;
+  }
+
+  .cover,
+  .meta,
+  .title,
+  .sub {
+    display: block;
   }
 
   /*
@@ -123,6 +163,35 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     overflow-wrap: anywhere;
+  }
+
+  .cover-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 200ms var(--ease);
+  }
+
+  .cover-image.loaded {
+    opacity: 1;
+  }
+
+  .progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .progress span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
   }
 
   .badge {

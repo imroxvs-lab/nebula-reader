@@ -1,5 +1,6 @@
 <script lang="ts">
   import { library } from "#lib/stores/library.svelte.ts";
+  import { nav } from "#lib/stores/nav.svelte.ts";
   import { toasts } from "#lib/stores/toasts.svelte.ts";
   import type { Book } from "#lib/types.ts";
   import BookCard from "./BookCard.svelte";
@@ -8,8 +9,17 @@
 
   let menu = $state<{ book: Book; x: number; y: number } | null>(null);
 
+  const UPCOMING: Partial<Record<Book["format"], string>> = {
+    epub: "Los libros EPUB se podrán leer en una próxima versión.",
+    pdf: "Los PDF se podrán leer en una próxima versión.",
+    cbr: "Los cómics CBR se podrán leer en una próxima versión.",
+    cb7: "Los cómics CB7 se podrán leer en una próxima versión.",
+  };
+
   function openBook(book: Book) {
-    toasts.show("info", `«${book.title}»`, "El lector llegará en la próxima versión.");
+    const upcoming = UPCOMING[book.format];
+    if (upcoming) toasts.show("info", `«${book.title}»`, upcoming);
+    else nav.openReader(book);
   }
 
   function showMenu(book: Book, x: number, y: number) {

@@ -25,6 +25,11 @@ class LibraryStore {
     }
   }
 
+  /** Recarga vistas y contadores (p. ej. al volver del lector). */
+  refresh(): void {
+    this.#changed();
+  }
+
   #changed(): void {
     this.revision += 1;
     void this.refreshStats();
