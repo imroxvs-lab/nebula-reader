@@ -273,6 +273,18 @@ pub struct LibraryQuery {
     pub kind: Option<BookKind>,
     /// Orden del resultado.
     pub sort: SortBy,
+    /// Número máximo de resultados; `None` = todos.
+    pub limit: Option<u32>,
+}
+
+/// Recuento de la biblioteca por categoría.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryStats {
+    /// Libros (EPUB, PDF).
+    pub books: u64,
+    /// Cómics (CBZ, CBR, CB7).
+    pub comics: u64,
 }
 
 impl LibraryQuery {
@@ -447,6 +459,7 @@ mod tests {
                 search: None,
                 kind: Some(BookKind::Comic),
                 sort: SortBy::LastOpened,
+                limit: None,
             }
         );
     }

@@ -7,13 +7,15 @@
 
 pub mod domain;
 pub mod error;
+pub mod import;
 pub mod library;
 
 pub use domain::{
-    Book, BookFormat, BookId, BookKind, ImportFailure, ImportReport, LibraryQuery, NewBook, SortBy,
-    Timestamp, title_from_path,
+    Book, BookFormat, BookId, BookKind, ImportFailure, ImportReport, LibraryQuery, LibraryStats,
+    NewBook, SortBy, Timestamp, title_from_path,
 };
 pub use error::{CoreError, CoreResult};
+pub use import::{ScanOutcome, scan_paths};
 pub use library::{InsertOutcome, Library};
 
 /// Versión del núcleo, expuesta para diagnósticos en la interfaz.

@@ -11,7 +11,9 @@ use std::time::Duration;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
-use crate::domain::{Book, BookFormat, BookId, BookKind, LibraryQuery, NewBook, SortBy, Timestamp};
+use crate::domain::{
+    Book, BookFormat, BookId, BookKind, LibraryQuery, LibraryStats, NewBook, SortBy, Timestamp,
+};
 use crate::error::{CoreError, CoreResult};
 
 /// Tiempo máximo de espera si otro proceso tiene la base de datos bloqueada.
@@ -71,6 +73,13 @@ impl Library {
         conn.pragma_update(None, "foreign_keys", true)?;
         migrations::migrate(&mut conn)?;
         Ok(Self { conn })
+    }
+
+    /// Abre una transacción sobre la conexión compartida. Los métodos de
+    /// `Library` llamados mientras viva forman parte de ella; si se descarta sin
+    /// `commit`, se deshace.
+    pub(crate) fn transaction(&self) -> CoreResult<rusqlite::Transaction<'_>> {
+        Ok(self.conn.unchecked_transaction()?)
     }
 
     /// Versión del esquema aplicada.
@@ -143,13 +152,14 @@ impl Library {
             "SELECT {BOOK_COLUMNS} FROM books
              WHERE (?1 IS NULL OR title LIKE ?1 ESCAPE '\\')
                AND {kind}
-             ORDER BY {order}",
+             ORDER BY {order}
+             LIMIT coalesce(?2, -1)", // En SQLite, LIMIT -1 = sin límite.
             kind = kind_clause(query.kind),
             order = order_clause(query.sort),
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
         let books = stmt
-            .query_map([pattern], book_from_row)?
+            .query_map(params![pattern, query.limit], book_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(books)
     }
@@ -159,10 +169,27 @@ impl Library {
     /// # Errors
     /// [`CoreError::Db`] si SQLite falla.
     pub fn count(&self) -> CoreResult<u64> {
-        let count: i64 = self
+        let stats = self.stats()?;
+        Ok(stats.books + stats.comics)
+    }
+
+    /// Recuento de la biblioteca por categoría.
+    ///
+    /// # Errors
+    /// [`CoreError::Db`] si SQLite falla.
+    pub fn stats(&self) -> CoreResult<LibraryStats> {
+        let sql = format!(
+            "SELECT coalesce(sum({comic}), 0), coalesce(sum(NOT {comic}), 0) FROM books",
+            comic = kind_clause(Some(BookKind::Comic)),
+        );
+        let (comics, books): (i64, i64) = self
             .conn
-            .query_row("SELECT COUNT(*) FROM books", [], |row| row.get(0))?;
-        Ok(u64::try_from(count).unwrap_or_default())
+            .prepare_cached(&sql)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(LibraryStats {
+            books: u64::try_from(books).unwrap_or_default(),
+            comics: u64::try_from(comics).unwrap_or_default(),
+        })
     }
 
     /// Quita un libro de la biblioteca (no borra el archivo).
@@ -491,8 +518,42 @@ mod tests {
             search: Some("saga".to_owned()),
             kind: Some(BookKind::Book),
             sort: SortBy::Title,
+            limit: None,
         };
         assert_eq!(titles(&list(&lib, &query)), ["Saga guía"]);
+    }
+
+    #[test]
+    fn limit_truncates_results() {
+        let lib = library();
+        insert(&lib, "C:/a.pdf", 1);
+        insert(&lib, "C:/b.pdf", 2);
+        insert(&lib, "C:/c.pdf", 3);
+        let query = LibraryQuery {
+            limit: Some(2),
+            ..LibraryQuery::default()
+        };
+        assert_eq!(titles(&list(&lib, &query)), ["c", "b"]);
+    }
+
+    #[test]
+    fn stats_count_books_and_comics() {
+        let lib = library();
+        insert(&lib, "C:/a.cbz", 1);
+        insert(&lib, "C:/b.cb7", 2);
+        insert(&lib, "C:/c.epub", 3);
+        assert_eq!(
+            lib.stats().ok(),
+            Some(LibraryStats {
+                books: 1,
+                comics: 2
+            })
+        );
+    }
+
+    #[test]
+    fn stats_of_empty_library_are_zero() {
+        assert_eq!(library().stats().ok(), Some(LibraryStats::default()));
     }
 
     #[test]
