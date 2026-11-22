@@ -46,3 +46,6 @@ cargo test --workspace
 npm run check
 npm run build
 ```
+
+## Licencia
+[MIT](LICENSE) © 2026 Roxvs

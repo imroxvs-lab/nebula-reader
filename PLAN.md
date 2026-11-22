@@ -22,6 +22,8 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 4. El usuario revisa la fase completa y pide cambios si hace falta. Si una tarea marcada no le
    convence, vuelve a `[ ]` con una nota de lo que hay que corregir.
 5. La fase se marca ✅ y se crea su tag **solo** cuando el usuario la aprueba; entonces se pasa a la siguiente.
+6. Al aprobar una fase se publica en GitHub (`github.com/imroxvs-lab/nebula-reader`): `git push origin main` y `git push origin <tag>`.
+   Solo se publican archivos del programa; los del asistente se excluyen localmente en `.git/info/exclude`.
 - Compilar/ejecutar la app con herramientas de **Windows** (`cargo.exe`, `npm`); `nebula-core` también se puede testear desde WSL.
 - Las tareas 1.1–1.3 se hicieron con el flujo anterior (aprobación del usuario tarea a tarea).
 
@@ -188,3 +190,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - Portadas AVIF: no hay decodificador AVIF (evita una dependencia nativa) y se usa la provisional; las páginas AVIF sí se muestran, porque las decodifica WebView2.
     - No se leen los metadatos `ComicInfo.xml` (título, serie, autor): candidato para la fase 3 junto con los metadatos de EPUB.
 - Fase 2 aprobada por el usuario; versión subida a 0.2.0 (`Cargo.toml`, `tauri.conf.json`, `package.json`) y tag `v0.2.0` creado.
+- Publicación en GitHub: repositorio público `nebula-reader`, con licencia MIT (`LICENSE`). Antes del primer push se reescribió el historial para que no contenga archivos del asistente (los hashes de commit anteriores a esta fecha ya no son válidos). Cada fase aprobada se publica junto con su tag.
