@@ -4,10 +4,8 @@
 fn main() -> std::process::ExitCode {
     match nebula_reader_lib::run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
-        // `tracing` se configurará en la tarea 1.5; hasta entonces stderr es el único canal.
-        #[allow(clippy::print_stderr)]
         Err(err) => {
-            eprintln!("Nebula Reader no pudo iniciarse: {err}");
+            tracing::error!(error = %err, "Nebula Reader no pudo iniciarse");
             std::process::ExitCode::FAILURE
         }
     }

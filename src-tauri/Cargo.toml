@@ -22,6 +22,11 @@ nebula-core = { path = "../crates/nebula-core" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-dialog = "2.7.3"
+tauri-plugin-window-state = "2.4.1"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+thiserror = "2.0.21"
 
 [lints]
 workspace = true
