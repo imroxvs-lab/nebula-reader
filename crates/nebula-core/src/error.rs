@@ -53,6 +53,10 @@ pub enum CoreError {
     #[error("{0} no contiene ninguna imagen")]
     NoPages(PathBuf),
 
+    /// El recurso pedido no está dentro del archivo.
+    #[error("el recurso {0} no existe en el libro")]
+    NotFoundInArchive(String),
+
     /// Se pidió una página que no existe.
     #[error("la página {index} no existe (el libro tiene {count})")]
     PageOutOfRange {

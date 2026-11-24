@@ -53,6 +53,13 @@ const MIGRATIONS: &[&str] = &[
         updated_at INTEGER NOT NULL
     ) STRICT;
     ",
+    // 3: metadatos (autor y serie) leídos de EPUB y ComicInfo.xml.
+    r"
+    ALTER TABLE books ADD COLUMN author TEXT;
+    ALTER TABLE books ADD COLUMN series TEXT;
+    ALTER TABLE books ADD COLUMN series_index REAL;
+    CREATE INDEX books_series_idx ON books (series COLLATE NOCASE, series_index);
+    ",
 ];
 
 /// Versión de esquema más reciente que conoce esta compilación.

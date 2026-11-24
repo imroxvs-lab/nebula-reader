@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult};
+use crate::metadata::BookMetadata;
 
 /// Título usado cuando no se puede derivar ninguno del nombre del archivo.
 pub const UNTITLED: &str = "Sin título";
@@ -172,6 +173,12 @@ pub struct Book {
     pub cover: CoverStatus,
     /// Fracción leída (0.0–1.0), si se ha empezado a leer.
     pub progress: Option<f64>,
+    /// Autor o autores.
+    pub author: Option<String>,
+    /// Serie a la que pertenece.
+    pub series: Option<String>,
+    /// Número dentro de la serie.
+    pub series_index: Option<f64>,
 }
 
 /// Estado de la miniatura de portada de un libro.
@@ -208,7 +215,7 @@ impl CoverStatus {
 }
 
 /// Posición de lectura dentro de un libro.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Locator {
     /// Página de un cómic o documento paginado (índice desde 0).
@@ -216,6 +223,24 @@ pub enum Locator {
         /// Índice de la página.
         index: u32,
     },
+    /// Posición en un EPUB: documento del orden de lectura y fracción leída de él.
+    /// Es independiente del tamaño de letra y de ventana.
+    Epub {
+        /// Índice en el orden de lectura.
+        spine: u32,
+        /// Fracción del documento (0.0–1.0).
+        position: f64,
+    },
+}
+
+impl Locator {
+    /// Unidad de lectura (página o documento) a la que apunta.
+    pub const fn unit(&self) -> u32 {
+        match *self {
+            Self::Page { index } => index,
+            Self::Epub { spine, .. } => spine,
+        }
+    }
 }
 
 /// Progreso de lectura guardado.
@@ -238,7 +263,7 @@ impl Book {
 }
 
 /// Datos de un libro aún no insertado en la biblioteca.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NewBook {
     /// Ruta absoluta del archivo.
     pub path: PathBuf,
@@ -248,6 +273,8 @@ pub struct NewBook {
     pub format: BookFormat,
     /// Tamaño en bytes.
     pub file_size: u64,
+    /// Metadatos leídos del archivo (vacíos si no se leyeron).
+    pub metadata: BookMetadata,
 }
 
 impl NewBook {
@@ -266,7 +293,19 @@ impl NewBook {
             title,
             format,
             file_size,
+            metadata: BookMetadata::default(),
         })
+    }
+
+    /// Completa el libro con los metadatos del archivo; el título declarado
+    /// sustituye al derivado del nombre.
+    #[must_use]
+    pub fn with_metadata(mut self, metadata: BookMetadata) -> Self {
+        if let Some(title) = &metadata.title {
+            self.title.clone_from(title);
+        }
+        self.metadata = metadata;
+        self
     }
 }
 

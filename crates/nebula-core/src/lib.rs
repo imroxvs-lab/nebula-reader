@@ -7,20 +7,27 @@
 
 pub mod archive;
 pub mod cover;
+pub mod document;
 pub mod domain;
+pub mod epub;
 pub mod error;
 pub mod import;
 pub mod library;
+pub mod metadata;
 pub mod natural;
+mod xml;
 
 pub use archive::{ArchiveLimits, ComicArchive, ImageType, PageData};
+pub use document::OpenDocument;
 pub use domain::{
     Book, BookFormat, BookId, BookKind, CoverStatus, ImportFailure, ImportReport, LibraryQuery,
     LibraryStats, Locator, NewBook, ReadingProgress, SortBy, Timestamp, title_from_path,
 };
+pub use epub::{EpubBook, EpubMetadata, SpineItem, TocEntry};
 pub use error::{CoreError, CoreResult};
 pub use import::{ScanOutcome, scan_paths};
 pub use library::{InsertOutcome, Library};
+pub use metadata::BookMetadata;
 
 /// Versión del núcleo, expuesta para diagnósticos en la interfaz.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

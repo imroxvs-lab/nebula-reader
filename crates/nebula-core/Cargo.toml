@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
+quick-xml = "0.42.0"
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

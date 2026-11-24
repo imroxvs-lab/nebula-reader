@@ -229,6 +229,44 @@ impl ComicArchive {
     }
 }
 
+/// Lee una entrada por nombre, con un límite de tamaño descomprimido.
+///
+/// La lectura se corta en `limit` aunque la cabecera declare un tamaño menor
+/// (protección contra zip bombs).
+///
+/// # Errors
+/// - [`CoreError::NotFoundInArchive`] si la entrada no existe o está cifrada.
+/// - [`CoreError::PageTooLarge`] si supera el límite.
+/// - [`CoreError::Archive`] si está dañada.
+pub(crate) fn read_entry<R: Read + std::io::Seek>(
+    zip: &mut ZipArchive<R>,
+    archive: &Path,
+    name: &str,
+    limit: u64,
+) -> CoreResult<Vec<u8>> {
+    let file = match zip.by_name(name) {
+        Ok(file) if !file.encrypted() => file,
+        Ok(_) | Err(zip::result::ZipError::FileNotFound) => {
+            return Err(CoreError::NotFoundInArchive(name.to_owned()));
+        }
+        Err(e) => return Err(CoreError::archive(archive, &e)),
+    };
+    if file.size() > limit {
+        return Err(CoreError::PageTooLarge { index: 0, limit });
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(file.size()).unwrap_or_default());
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| CoreError::Archive {
+            path: archive.to_path_buf(),
+            reason: format!("{name} dañado: {e}"),
+        })?;
+    if bytes.len() as u64 > limit {
+        return Err(CoreError::PageTooLarge { index: 0, limit });
+    }
+    Ok(bytes)
+}
+
 /// Entradas que no son páginas aunque tengan extensión de imagen.
 fn is_ignored(name: &str) -> bool {
     // `.` como segmento (`./01.jpg`) no es un archivo oculto.

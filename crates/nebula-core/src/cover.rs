@@ -76,7 +76,16 @@ pub fn render_cover(image_bytes: &[u8]) -> CoreResult<Vec<u8>> {
 /// - [`CoreError::Io`] si no se puede escribir la miniatura.
 pub fn write_comic_cover(archive: &mut ComicArchive, destination: &Path) -> CoreResult<()> {
     let page = archive.read_page(0)?;
-    let jpeg = render_cover(&page.bytes)?;
+    write_cover(&page.bytes, destination)
+}
+
+/// Genera la miniatura de una imagen cualquiera y la guarda de forma atómica.
+///
+/// # Errors
+/// - [`CoreError::Image`] si la imagen no se puede decodificar.
+/// - [`CoreError::Io`] si no se puede escribir la miniatura.
+pub fn write_cover(image_bytes: &[u8], destination: &Path) -> CoreResult<()> {
+    let jpeg = render_cover(image_bytes)?;
     write_atomically(destination, &jpeg)
 }
 

@@ -16,6 +16,7 @@ use crate::domain::{
     ReadingProgress, SortBy, Timestamp,
 };
 use crate::error::{CoreError, CoreResult};
+use crate::metadata::BookMetadata;
 
 /// Tiempo máximo de espera si otro proceso tiene la base de datos bloqueada.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -24,7 +25,8 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Las columnas de `progress` no colisionan con las de `books`, así que los
 /// filtros y órdenes pueden usar nombres sin prefijo.
 const BOOK_SELECT: &str = "SELECT b.id, b.path, b.title, b.format, b.file_size, b.added_at,
-        b.last_opened_at, b.page_count, b.cover_status, p.percent
+        b.last_opened_at, b.page_count, b.cover_status, p.percent,
+        b.author, b.series, b.series_index
     FROM books b LEFT JOIN progress p ON p.book_id = b.id";
 
 /// Resultado de intentar insertar un libro.
@@ -107,8 +109,9 @@ impl Library {
         let id = self
             .conn
             .prepare_cached(
-                "INSERT INTO books (path, title, format, file_size, added_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO books
+                    (path, title, format, file_size, added_at, author, series, series_index)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT (path) DO NOTHING
                  RETURNING id",
             )?
@@ -118,7 +121,10 @@ impl Library {
                     book.title,
                     book.format,
                     file_size,
-                    added_at.as_unix_seconds()
+                    added_at.as_unix_seconds(),
+                    book.metadata.author,
+                    book.metadata.series,
+                    book.metadata.series_index
                 ],
                 |row| row.get::<_, i64>(0),
             )
@@ -152,7 +158,10 @@ impl Library {
         let pattern = query.search_term().map(like_pattern);
         let sql = format!(
             "{BOOK_SELECT}
-             WHERE (?1 IS NULL OR title LIKE ?1 ESCAPE '\\')
+             WHERE (?1 IS NULL
+                    OR title LIKE ?1 ESCAPE '\\'
+                    OR author LIKE ?1 ESCAPE '\\'
+                    OR series LIKE ?1 ESCAPE '\\')
                AND {kind}
              ORDER BY {order}
              LIMIT coalesce(?2, -1)", // En SQLite, LIMIT -1 = sin límite.
@@ -241,6 +250,36 @@ impl Library {
             .query_map([limit], book_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(books)
+    }
+
+    /// Actualiza título, autor y serie con los metadatos leídos del archivo.
+    /// Los campos ausentes en `metadata` no se modifican.
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn update_metadata(&self, id: BookId, metadata: &BookMetadata) -> CoreResult<()> {
+        let updated = self
+            .conn
+            .prepare_cached(
+                "UPDATE books SET
+                    title = coalesce(?2, title),
+                    author = coalesce(?3, author),
+                    series = coalesce(?4, series),
+                    series_index = coalesce(?5, series_index)
+                 WHERE id = ?1",
+            )?
+            .execute(params![
+                id.get(),
+                metadata.title,
+                metadata.author,
+                metadata.series,
+                metadata.series_index
+            ])?;
+        if updated == 0 {
+            return Err(CoreError::NotFound(id));
+        }
+        Ok(())
     }
 
     /// Guarda el número de páginas de un libro.
@@ -429,6 +468,9 @@ fn book_from_row(row: &Row<'_>) -> rusqlite::Result<Book> {
             .and_then(|count| u32::try_from(count).ok()),
         cover: CoverStatus::from_db(&row.get::<_, String>(8)?),
         progress: row.get(9)?,
+        author: row.get(10)?,
+        series: row.get(11)?,
+        series_index: row.get(12)?,
     })
 }
 
@@ -505,6 +547,9 @@ mod tests {
                 page_count: None,
                 cover: CoverStatus::Pending,
                 progress: None,
+                author: None,
+                series: None,
+                series_index: None,
             })
         );
     }
@@ -793,6 +838,78 @@ mod tests {
         assert_eq!(
             lib.get(id).ok().map(|b| (b.page_count, b.cover)),
             Some((Some(24), CoverStatus::Ready))
+        );
+    }
+
+    fn with_meta(path: &str, author: &str, series: &str) -> NewBook {
+        new_book(path).with_metadata(BookMetadata {
+            title: None,
+            author: Some(author.to_owned()),
+            series: Some(series.to_owned()),
+            series_index: Some(2.0),
+        })
+    }
+
+    #[test]
+    fn metadata_is_stored_on_insert() {
+        let lib = library();
+        let id = match lib.insert(
+            &with_meta("C:/a.epub", "Tolkien", "Tierra Media"),
+            Timestamp::from_unix_seconds(1),
+        ) {
+            Ok(InsertOutcome::Inserted(id)) => id,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            lib.get(id)
+                .ok()
+                .map(|b| (b.author, b.series, b.series_index)),
+            Some((
+                Some("Tolkien".to_owned()),
+                Some("Tierra Media".to_owned()),
+                Some(2.0)
+            ))
+        );
+    }
+
+    #[test]
+    fn search_matches_author_and_series() {
+        let lib = library();
+        assert!(
+            lib.insert(
+                &with_meta("C:/a.epub", "Tolkien", "Tierra Media"),
+                Timestamp::from_unix_seconds(1)
+            )
+            .is_ok()
+        );
+        insert(&lib, "C:/otro.epub", 2);
+        let found = |term: &str| {
+            titles(&list(
+                &lib,
+                &LibraryQuery {
+                    search: Some(term.to_owned()),
+                    ..LibraryQuery::default()
+                },
+            ))
+            .len()
+        };
+        assert_eq!((found("tolk"), found("media"), found("zzz")), (1, 1, 0));
+    }
+
+    #[test]
+    fn update_metadata_keeps_absent_fields() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.epub", 1);
+        let meta = BookMetadata {
+            title: Some("Título real".to_owned()),
+            author: Some("Autora".to_owned()),
+            ..BookMetadata::default()
+        };
+        assert!(lib.update_metadata(id, &meta).is_ok());
+        assert!(lib.update_metadata(id, &BookMetadata::default()).is_ok());
+        assert_eq!(
+            lib.get(id).ok().map(|b| (b.title, b.author)),
+            Some(("Título real".to_owned(), Some("Autora".to_owned())))
         );
     }
 

@@ -12,9 +12,10 @@ use walkdir::WalkDir;
 use crate::domain::{BookFormat, ImportFailure, ImportReport, NewBook, Timestamp};
 use crate::error::{CoreError, CoreResult};
 use crate::library::{InsertOutcome, Library};
+use crate::metadata::read_metadata;
 
 /// Resultado de recorrer las rutas a importar.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ScanOutcome {
     /// Archivos con formato soportado, listos para insertar.
     pub books: Vec<NewBook>,
@@ -54,7 +55,7 @@ fn scan_one(path: &Path, outcome: &mut ScanOutcome) {
         scan_dir(&path, outcome);
     } else if metadata.is_file() {
         match NewBook::from_path(path, metadata.len()) {
-            Ok(book) => outcome.books.push(book),
+            Ok(book) => outcome.books.push(enrich(book)),
             Err(_) => outcome.unsupported += 1,
         }
     } else {
@@ -98,8 +99,20 @@ fn scan_dir(dir: &Path, outcome: &mut ScanOutcome) {
         // El formato ya se ha comprobado, así que `from_path` no puede fallar aquí;
         // aun así se trata el error en vez de suponerlo.
         match NewBook::from_path(entry.into_path(), size) {
-            Ok(book) => outcome.books.push(book),
+            Ok(book) => outcome.books.push(enrich(book)),
             Err(_) => outcome.unsupported += 1,
+        }
+    }
+}
+
+/// Añade los metadatos del archivo. Un archivo ilegible se importa igualmente
+/// (con el título del nombre): al abrirlo, el usuario verá el error concreto.
+fn enrich(book: NewBook) -> NewBook {
+    match read_metadata(&book.path, book.format) {
+        Ok(metadata) => book.with_metadata(metadata),
+        Err(error) => {
+            tracing::debug!(path = %book.path.display(), %error, "sin metadatos");
+            book
         }
     }
 }
@@ -281,6 +294,34 @@ mod tests {
         let lib = Library::open_in_memory().expect("biblioteca");
         let report = import(&lib, &[file.clone(), file]);
         assert_eq!((report.added, report.skipped_duplicates), (1, 1));
+    }
+
+    #[test]
+    fn comic_info_metadata_is_imported() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().expect("directorio temporal");
+        let path = dir.path().join("saga_012.cbz");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).expect("crear"));
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("ComicInfo.xml", options).expect("entrada");
+        zip.write_all(b"<ComicInfo><Series>Saga</Series><Writer>Vaughan</Writer></ComicInfo>")
+            .expect("escribir");
+        zip.start_file("01.jpg", options).expect("entrada");
+        zip.finish().expect("cerrar");
+
+        let scan = scan_paths(&[&path]);
+        let meta = scan.books.first().map(|b| b.metadata.clone());
+        assert_eq!(
+            meta.map(|m| (m.series, m.author)),
+            Some((Some("Saga".to_owned()), Some("Vaughan".to_owned())))
+        );
+    }
+
+    #[test]
+    fn unreadable_file_is_imported_with_filename_title() {
+        let dir = fixture();
+        let scan = scan_paths(&[dir.path().join("sub").join("Dune.epub")]);
+        assert_eq!(scan.books.first().map(|b| b.title.as_str()), Some("Dune"));
     }
 
     #[test]
