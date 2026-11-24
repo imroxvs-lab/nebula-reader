@@ -38,6 +38,13 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 
 ---
 
+## Publicación en GitHub ✅
+- [x] Repositorio público `github.com/imroxvs-lab/nebula-reader` con `main`, tags y licencia MIT
+- [x] Historial sin archivos del asistente
+- [x] Sin coautoría del asistente: verificado por el usuario en GitHub
+
+---
+
 ## Fase 1 — Base, pantalla de inicio y SQLite (v0.1.0) ✅
 
 ### Tareas
@@ -191,3 +198,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - No se leen los metadatos `ComicInfo.xml` (título, serie, autor): candidato para la fase 3 junto con los metadatos de EPUB.
 - Fase 2 aprobada por el usuario; versión subida a 0.2.0 (`Cargo.toml`, `tauri.conf.json`, `package.json`) y tag `v0.2.0` creado.
 - Publicación en GitHub: repositorio público `nebula-reader`, con licencia MIT (`LICENSE`). Antes del primer push se reescribió el historial para que no contenga archivos del asistente (los hashes de commit anteriores a esta fecha ya no son válidos). Cada fase aprobada se publica junto con su tag.
+- Publicación verificada por el usuario: no aparece coautoría del asistente en el repositorio.
