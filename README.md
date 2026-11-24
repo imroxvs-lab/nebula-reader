@@ -16,6 +16,8 @@ El plan de desarrollo por fases está en [PLAN.md](PLAN.md).
 
 ## Desarrollo
 ```powershell
+# Motor PDF (una vez; descarga pdfium.dll con versión y hash fijados)
+powershell -ExecutionPolicy Bypass -File scripts\fetch-pdfium.ps1
 npm install
 npm run tauri dev
 ```
@@ -36,6 +38,13 @@ cargo run --release -p nebula-core --example make_comic -- C:\ruta\prueba.cbz 22
 # Generar EPUB de prueba (EPUB 3 con contenido hostil y EPUB 2)
 cargo run -p nebula-core --example make_epub -- C:\ruta\epub
 
+# Generar un PDF de prueba (500 páginas numeradas)
+cargo run -p nebula-core --example make_pdf -- C:\ruta\prueba.pdf 500
+
+# Tests con PDFium real
+$env:NEBULA_PDFIUM = "src-tauri\resources\pdfium\pdfium.dll"
+cargo test -p nebula-core --features pdf --test pdf
+
 # Medir arranque y memoria de la build release (y guardar una captura)
 npm run tauri build -- --no-bundle
 powershell -ExecutionPolicy Bypass -File scripts\measure.ps1
@@ -49,6 +58,9 @@ cargo test --workspace
 npm run check
 npm run build
 ```
+
+## Licencias de terceros
+- PDFium (`pdfium.dll`): BSD-3-Clause / Apache-2.0, binarios de [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries). Se instala junto con su licencia en `pdfium\LICENSE`.
 
 ## Licencia
 [MIT](LICENSE) © 2026 Roxvs

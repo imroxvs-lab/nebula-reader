@@ -7,7 +7,7 @@ Objetivos de recursos (medidos en release con `scripts/measure.ps1`, suma de la 
 - **Métrica principal: working set privado**, que es la columna «Memoria» del Administrador de tareas. El *commit* se anota como dato secundario: en el proceso GPU incluye reservas de Direct3D que no ocupan RAM física.
 - Reposo: no superar en más de ~30 MB la línea base de v0.1.0 (~82 MB vacía, ~86 MB con 21 elementos).
 - Lectura: crecimiento acotado y estable al pasar páginas (sin fugas).
-- Instalador NSIS: < 10 MB sin pdfium (v0.1.0: 1,80 MiB).
+- Instalador NSIS: < 10 MB (v0.1.0: 1,80 MiB; con PDFium desde v0.4.0: 5,05 MiB).
 
 ## Cómo usar este plan
 Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
@@ -100,13 +100,13 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Fase 4 — PDF (v0.4.0)
 
 ### Tareas
-- [ ] 4.1 `pdf.rs` con `pdfium-render` tras feature `pdf`; render bajo demanda a la anchura visible
-- [ ] 4.2 Empaquetar `pdfium.dll`; si falta, PDF se deshabilita con mensaje claro
-- [ ] 4.3 `PdfReader` reutilizando los controles del lector de cómics; zoom con re-render; portada desde la página 1
+- [x] 4.1 `pdf.rs` con `pdfium-render` tras feature `pdf`; render bajo demanda a la anchura visible
+- [x] 4.2 Empaquetar `pdfium.dll`; si falta, PDF se deshabilita con mensaje claro
+- [x] 4.3 `PdfReader` reutilizando los controles del lector de cómics; zoom con re-render; portada desde la página 1
 
 ### Validación
-- [ ] Checks automáticos en verde
-- [ ] PDF de 500+ páginas con RAM estable al pasar páginas
+- [x] Checks automáticos en verde
+- [x] PDF de 500+ páginas con RAM estable al pasar páginas
 - [ ] Tag `v0.4.0`
 
 ## Fase 5 — CBR, CB7 y modos de cómic avanzados (v0.5.0)
@@ -159,6 +159,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.1.0 (fase 1 completa) | **82 MB** privateWS vacía / **86 MB** con 21 elementos (*commit* 170 / 252 MB) | — | ~85–130 ms hasta ventana visible | 1,80 MiB |
 | v0.2.0 (fase 2 completa) | **94 MB** privateWS con 23 elementos (*commit* 280 MB) | **110–115 MB** leyendo un CBZ de 220 páginas de 1600×2400 (1,3 MB/página); estable tras pasar 45 páginas y volver | ~100–120 ms | 2,06 MiB |
 | v0.3.0 (fase 3 completa) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
+| v0.4.0 (fase 4, pendiente de aprobación) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -231,3 +232,18 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - No hay búsqueda de texto dentro del libro ni subrayados (candidatos para la fase 6, junto con los marcadores).
     - EPUB con DRM o de diseño fijo (*fixed layout*) no están soportados.
 - Fase 3 aprobada por el usuario; versión 0.3.0 y tag `v0.3.0` publicados.
+- Fase 4 (4.1–4.3):
+  - **PDFium**: build `chromium/8179` de `bblanchon/pdfium-binaries` (BSD-3/Apache-2.0), descargado por `scripts/fetch-pdfium.ps1` con versión y SHA-256 fijados. La DLL no se versiona en git (`/src-tauri/resources/pdfium/` en `.gitignore`); se incluye en el instalador como recurso (`pdfium/pdfium.dll` + `pdfium/LICENSE`). **Hay que ejecutar el script antes de compilar.**
+  - **`pdfium-render` 0.9.6** (`pdfium_latest`, `thread_safe`, `image_latest`) tras la feature `pdf` de `nebula-core`. `#![forbid(unsafe_code)]` sigue vigente en el núcleo: el código `unsafe` está en la dependencia.
+  - **Sin documentos PDF abiertos en memoria**: cada render reabre el archivo (PDFium carga el índice de forma perezosa). RAM estable incluso con 500 páginas.
+  - **Render bajo demanda** en `/pdf/{id}/{página}?w={ancho}`: JPEG de calidad 90 al ancho en píxeles físicos (tamaño en pantalla × `devicePixelRatio`, en escalones de 256 px y acotado a 64–4096 px). El zoom vuelve a renderizar a más resolución.
+  - **Lector**: reutiliza `ComicReader` (ajustes, zoom, teclado, rueda, progreso). Antes de cargar se usa la proporción de la primera página; el «1:1» de PDF es A4 a 96 ppp.
+  - **Portadas**: primera página renderizada a 320 px. Al generarla o al abrir el PDF se completan título y autor (se descartan títulos genéricos como «Untitled» o «Microsoft Word - …»).
+  - **Sin `pdfium.dll`** la app arranca normalmente y los PDF muestran «No se encontró el motor de PDF (pdfium.dll). Reinstala Nebula Reader para leer PDF.». La falta del motor no marca las portadas como fallidas.
+  - **Errores nuevos**: `CoreError::Protected` (PDF con contraseña: mensaje específico) y `CoreError::PdfEngine`.
+  - **Tests**: `crates/nebula-core/tests/pdf.rs` (7) con PDFium real; se ejecutan si `NEBULA_PDFIUM` apunta a la DLL y si no se omiten. Herramienta `make_pdf` para generar PDF de prueba.
+  - **Fallo detectado y corregido** en la verificación: `rename_all` en un enum serde renombra variantes, no campos, y la interfaz recibía `aspect_ratio` en vez de `aspectRatio`, con lo que pedía `w=NaN`. Se usa `rename_all_fields` y hay un test que lo cubre. El protocolo registra ahora cada petición a nivel `debug`.
+  - **Verificación del instalador**: instalación silenciosa en una carpeta temporal, `pdfium\pdfium.dll` presente, apertura de un PDF desde la copia instalada y desinstalación limpia.
+  - **Pendiente o limitado**:
+    - PDF con contraseña: solo se avisa; no se pide la contraseña.
+    - No hay índice (marcadores del PDF), selección ni búsqueda de texto: candidatos para la fase 6.
