@@ -7,20 +7,20 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use nebula_core::{BookId, ComicArchive, CoreResult};
+use nebula_core::{BookId, CoreResult, OpenDocument};
 
 use crate::error::{CommandError, CommandResult};
 
 /// Documento compartido entre peticiones; el `Mutex` serializa las lecturas
 /// porque el lector ZIP necesita `&mut` para desplazarse por el archivo.
-pub type SharedArchive = Arc<Mutex<ComicArchive>>;
+pub type SharedDocument = Arc<Mutex<OpenDocument>>;
 
-/// Caché LRU de cómics abiertos.
+/// Caché LRU de documentos abiertos.
 #[derive(Debug)]
 pub struct DocumentCache {
     capacity: usize,
     /// El más reciente al final.
-    entries: Mutex<VecDeque<(BookId, SharedArchive)>>,
+    entries: Mutex<VecDeque<(BookId, SharedDocument)>>,
 }
 
 impl DocumentCache {
@@ -36,9 +36,9 @@ impl DocumentCache {
     ///
     /// La apertura se hace sin mantener el bloqueo de la caché, para no frenar
     /// las peticiones de otros documentos mientras se indexa un archivo.
-    pub fn get_or_open<F>(&self, id: BookId, open: F) -> CommandResult<SharedArchive>
+    pub fn get_or_open<F>(&self, id: BookId, open: F) -> CommandResult<SharedDocument>
     where
-        F: FnOnce() -> CoreResult<ComicArchive>,
+        F: FnOnce() -> CoreResult<OpenDocument>,
     {
         if let Some(found) = self.touch(id)? {
             return Ok(found);
@@ -64,7 +64,7 @@ impl DocumentCache {
     }
 
     /// Busca un documento y lo marca como el más reciente.
-    fn touch(&self, id: BookId) -> CommandResult<Option<SharedArchive>> {
+    fn touch(&self, id: BookId) -> CommandResult<Option<SharedDocument>> {
         let mut entries = self.lock()?;
         let Some(position) = entries.iter().position(|(entry_id, _)| *entry_id == id) else {
             return Ok(None);
@@ -77,7 +77,7 @@ impl DocumentCache {
         Ok(archive)
     }
 
-    fn lock(&self) -> CommandResult<std::sync::MutexGuard<'_, VecDeque<(BookId, SharedArchive)>>> {
+    fn lock(&self) -> CommandResult<std::sync::MutexGuard<'_, VecDeque<(BookId, SharedDocument)>>> {
         self.entries.lock().map_err(|_| {
             CommandError::internal("la caché de documentos quedó en un estado inválido")
         })
@@ -116,7 +116,9 @@ mod tests {
 
     fn open_into(cache: &DocumentCache, id: i64, path: &std::path::Path) {
         cache
-            .get_or_open(BookId::new(id), || ComicArchive::open(path))
+            .get_or_open(BookId::new(id), || {
+                nebula_core::ComicArchive::open(path).map(OpenDocument::Comic)
+            })
             .expect("abrir");
     }
 

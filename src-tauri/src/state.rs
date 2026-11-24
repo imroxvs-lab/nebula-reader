@@ -3,10 +3,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use nebula_core::{Book, BookFormat, BookId, ComicArchive, CoreResult, Library};
+use nebula_core::{Book, BookFormat, BookId, CoreResult, Library, OpenDocument};
 use tokio::sync::Semaphore;
 
-use crate::documents::{DocumentCache, SharedArchive};
+use crate::documents::{DocumentCache, SharedDocument};
 use crate::error::{CommandError, CommandResult};
 
 /// Documentos abiertos que se mantienen en memoria.
@@ -87,27 +87,24 @@ impl AppState {
         tauri::async_runtime::spawn_blocking(move || f(&state)).await?
     }
 
-    /// Devuelve el cómic abierto de un libro, abriéndolo si hace falta.
+    /// Devuelve el documento abierto de un libro, abriéndolo si hace falta.
     /// Solo desde hilos bloqueantes.
-    pub fn comic(&self, id: BookId) -> CommandResult<(Book, SharedArchive)> {
+    pub fn document(&self, id: BookId) -> CommandResult<(Book, SharedDocument)> {
         let book = self.library_blocking(|lib| lib.get(id))?;
         ensure_readable(&book)?;
-        let archive = self
+        let document = self
             .documents
-            .get_or_open(id, || ComicArchive::open(&book.path))?;
-        Ok((book, archive))
+            .get_or_open(id, || OpenDocument::open(&book.path, book.format))?;
+        Ok((book, document))
     }
 }
 
 /// Comprueba que el formato ya tiene lector.
 pub fn ensure_readable(book: &Book) -> CommandResult<()> {
     match book.format {
-        BookFormat::Cbz => Ok(()),
+        BookFormat::Cbz | BookFormat::Epub => Ok(()),
         BookFormat::Cbr | BookFormat::Cb7 => Err(CommandError::unsupported(
             "Los cómics CBR y CB7 todavía no se pueden abrir; llegarán en una próxima versión.",
-        )),
-        BookFormat::Epub => Err(CommandError::unsupported(
-            "Los libros EPUB todavía no se pueden abrir; llegarán en una próxima versión.",
         )),
         BookFormat::Pdf => Err(CommandError::unsupported(
             "Los PDF todavía no se pueden abrir; llegarán en una próxima versión.",

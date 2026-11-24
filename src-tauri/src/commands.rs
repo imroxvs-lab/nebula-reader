@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use nebula_core::cover::cover_path;
 use nebula_core::{
-    Book, BookId, ImportReport, LibraryQuery, LibraryStats, Locator, ReadingProgress, Timestamp,
-    scan_paths,
+    Book, BookId, ImportReport, LibraryQuery, LibraryStats, Locator, OpenDocument, ReadingProgress,
+    SpineItem, Timestamp, TocEntry, metadata, scan_paths,
 };
 use serde::Serialize;
 use tauri::State;
@@ -17,7 +17,7 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 
 /// Claves de ajustes que la interfaz puede leer y escribir.
-const SETTING_KEYS: &[&str] = &["theme", "readerFit"];
+const SETTING_KEYS: &[&str] = &["theme", "readerFit", "epubStyle"];
 /// Longitud máxima de un valor de ajuste.
 const MAX_SETTING_LEN: usize = 1024;
 /// Longitud máxima del texto de búsqueda.
@@ -33,10 +33,27 @@ const MAX_CONTINUE_READING: u32 = 50;
 pub struct OpenedBook {
     /// Datos del libro (ya con `last_opened_at` y `page_count` actualizados).
     pub book: Book,
-    /// Número de páginas.
+    /// Páginas (cómic) o documentos del orden de lectura (EPUB).
     pub page_count: u32,
     /// Dónde se quedó el usuario, si había empezado.
     pub progress: Option<ReadingProgress>,
+    /// Estructura específica del formato.
+    pub content: ReaderContent,
+}
+
+/// Estructura del documento que necesita cada lector.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ReaderContent {
+    /// Cómic: basta con el número de páginas.
+    Comic,
+    /// EPUB: orden de lectura e índice.
+    Epub {
+        /// Documentos en orden de lectura.
+        spine: Vec<SpineItem>,
+        /// Índice.
+        toc: Vec<TocEntry>,
+    },
 }
 
 /// Versión del núcleo.
@@ -124,21 +141,41 @@ pub async fn library_continue_reading(
 pub async fn book_open(state: State<'_, AppState>, id: BookId) -> CommandResult<OpenedBook> {
     state
         .blocking(move |state| {
-            let (book, archive) = state.comic(id)?;
-            let page_count = archive
-                .lock()
-                .map_err(|_| CommandError::internal("documento en estado inválido"))?
-                .page_count();
-            let page_count = u32::try_from(page_count).unwrap_or(u32::MAX);
+            let (book, document) = state.document(id)?;
+            let (units, content, fresh_metadata) = {
+                let document = document
+                    .lock()
+                    .map_err(|_| CommandError::internal("documento en estado inválido"))?;
+                match &*document {
+                    OpenDocument::Comic(_) => (document.unit_count(), ReaderContent::Comic, None),
+                    OpenDocument::Epub(epub) => (
+                        document.unit_count(),
+                        ReaderContent::Epub {
+                            spine: epub.spine().to_vec(),
+                            toc: epub.toc().to_vec(),
+                        },
+                        // Libros importados antes de leer metadatos: se completan ahora.
+                        book.author
+                            .is_none()
+                            .then(|| metadata::from_epub(epub))
+                            .filter(|meta| !meta.is_empty()),
+                    ),
+                }
+            };
+            let page_count = u32::try_from(units).unwrap_or(u32::MAX);
             state.library_blocking(|lib| {
                 if book.page_count != Some(page_count) {
                     lib.set_page_count(id, page_count)?;
+                }
+                if let Some(meta) = &fresh_metadata {
+                    lib.update_metadata(id, meta)?;
                 }
                 lib.mark_opened(id, Timestamp::now())?;
                 Ok(OpenedBook {
                     book: lib.get(id)?,
                     page_count,
                     progress: lib.progress(id)?,
+                    content,
                 })
             })
         })
@@ -166,7 +203,14 @@ pub async fn progress_save(
     }
     state
         .with_library(move |lib| {
-            let Locator::Page { index } = locator;
+            if let Locator::Epub { position, .. } = locator
+                && !(0.0..=1.0).contains(&position)
+            {
+                return Err(nebula_core::CoreError::InvalidData(
+                    "posición fuera de rango".to_owned(),
+                ));
+            }
+            let index = locator.unit();
             if let Some(count) = lib.get(id)?.page_count
                 && index >= count
             {

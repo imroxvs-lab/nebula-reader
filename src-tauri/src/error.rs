@@ -65,7 +65,10 @@ impl CommandError {
 impl From<CoreError> for CommandError {
     fn from(error: CoreError) -> Self {
         let code = match &error {
-            CoreError::NotFound(_) | CoreError::PageOutOfRange { .. } => ErrorCode::NotFound,
+            CoreError::NotFound(_)
+            | CoreError::PageOutOfRange { .. }
+            | CoreError::NotFoundInArchive(_) => ErrorCode::NotFound,
+            CoreError::InvalidData(_) => ErrorCode::InvalidInput,
             CoreError::Archive { .. }
             | CoreError::NoPages(_)
             | CoreError::PageTooLarge { .. }
@@ -93,7 +96,9 @@ impl From<tauri::Error> for CommandError {
 /// descompresor) queda en el registro.
 fn user_message(error: &CoreError) -> String {
     match error {
-        CoreError::Archive { .. } => "El archivo está dañado o no es un cómic válido.".to_owned(),
+        CoreError::Archive { .. } => {
+            "El archivo está dañado o no tiene un formato válido.".to_owned()
+        }
         CoreError::NoPages(_) => "El archivo no contiene ninguna página de imagen.".to_owned(),
         CoreError::PageTooLarge { .. } => {
             "Una de las páginas es demasiado grande para mostrarla.".to_owned()
@@ -132,7 +137,7 @@ mod tests {
             (error.code, error.message.as_str()),
             (
                 ErrorCode::InvalidFile,
-                "El archivo está dañado o no es un cómic válido."
+                "El archivo está dañado o no tiene un formato válido."
             )
         );
     }

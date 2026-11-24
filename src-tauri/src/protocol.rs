@@ -5,14 +5,20 @@
 //! Rutas:
 //! - `/cover/{id}`: miniatura de portada (se genera bajo demanda y se cachea).
 //! - `/page/{id}/{index}`: página de un cómic, tal cual está en el archivo.
+//! - `/epub/{id}/{ruta}`: recurso de un EPUB (capítulos, CSS, imágenes, fuentes).
+//!   Se sirve con una CSP que prohíbe ejecutar scripts.
 //!
 //! Solo se sirven recursos de libros de la biblioteca, identificados por su id;
 //! nunca rutas arbitrarias del disco.
 
 use std::borrow::Cow;
 
-use nebula_core::cover::{cover_path, write_comic_cover};
-use nebula_core::{BookFormat, BookId, ComicArchive, CoverStatus, ImageType};
+use nebula_core::cover::{cover_path, write_comic_cover, write_cover};
+use nebula_core::epub::path as epub_path;
+use nebula_core::{
+    BookFormat, BookId, ComicArchive, CoreError, CoverStatus, EpubBook, ImageType, OpenDocument,
+    metadata,
+};
 use tauri::http::{Request, Response, StatusCode, header};
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
@@ -28,11 +34,15 @@ const CACHE_IMMUTABLE: &str = "private, max-age=31536000, immutable";
 
 type HttpResponse = Response<Cow<'static, [u8]>>;
 
+/// Contenido de un EPUB: ni scripts, ni plugins, ni formularios.
+const EPUB_CSP: &str = "script-src 'none'; object-src 'none'; form-action 'none'";
+
 /// Recurso pedido.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Route {
     Cover(BookId),
     Page(BookId, usize),
+    Epub(BookId, String),
 }
 
 /// Punto de entrada registrado en el `Builder`.
@@ -61,6 +71,11 @@ pub fn handle<R: Runtime>(
                     .blocking(move |state| serve_page(state, id, index))
                     .await
             }
+            Some(Route::Epub(id, href)) => {
+                state
+                    .blocking(move |state| serve_epub(state, id, &href))
+                    .await
+            }
             None => Err(CommandError::new(ErrorCode::NotFound, "ruta desconocida")),
         };
         responder.respond(response.unwrap_or_else(|error| error_response(&error)));
@@ -68,6 +83,11 @@ pub fn handle<R: Runtime>(
 }
 
 fn parse_route(path: &str) -> Option<Route> {
+    if let Some(rest) = path.trim_start_matches('/').strip_prefix("epub/") {
+        let (id, href) = rest.split_once('/')?;
+        let href = epub_path::normalize(&epub_path::percent_decode(href)?)?;
+        return Some(Route::Epub(BookId::new(id.parse().ok()?), href));
+    }
     let mut parts = path.trim_matches('/').split('/');
     let route = match (parts.next()?, parts.next(), parts.next()) {
         ("cover", Some(id), None) => Route::Cover(BookId::new(id.parse().ok()?)),
@@ -80,12 +100,48 @@ fn parse_route(path: &str) -> Option<Route> {
 }
 
 fn serve_page(state: &AppState, id: BookId, index: usize) -> CommandResult<HttpResponse> {
-    let (_, archive) = state.comic(id)?;
-    let page = archive
+    let (_, document) = state.document(id)?;
+    let mut document = document
         .lock()
-        .map_err(|_| CommandError::internal("documento en estado inválido"))?
-        .read_page(index)?;
+        .map_err(|_| CommandError::internal("documento en estado inválido"))?;
+    let OpenDocument::Comic(comic) = &mut *document else {
+        return Err(CommandError::new(ErrorCode::NotFound, "no es un cómic"));
+    };
+    let page = comic.read_page(index)?;
     Ok(image(page.image_type, page.bytes))
+}
+
+fn serve_epub(state: &AppState, id: BookId, href: &str) -> CommandResult<HttpResponse> {
+    let (_, document) = state.document(id)?;
+    let mut document = document
+        .lock()
+        .map_err(|_| CommandError::internal("documento en estado inválido"))?;
+    let OpenDocument::Epub(book) = &mut *document else {
+        return Err(CommandError::new(ErrorCode::NotFound, "no es un EPUB"));
+    };
+    let resource = book.read_resource(href)?;
+    let mut response = response(
+        StatusCode::OK,
+        &resource.media_type,
+        CACHE_IMMUTABLE,
+        resource.bytes,
+    );
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        header::HeaderValue::from_static(EPUB_CSP),
+    );
+    // La interfaz descarga los capítulos con `fetch` y las fuentes se cargan
+    // desde la hoja de estilos: ambos necesitan CORS (el origen de la app es otro).
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        header::HeaderValue::from_static("*"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        header::HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
 }
 
 /// Sirve la miniatura; si no existe, la genera (con concurrencia limitada).
@@ -127,21 +183,27 @@ async fn read_cover_file(path: &std::path::Path) -> Option<HttpResponse> {
 
 fn generate_cover(state: &AppState, id: BookId, path: &std::path::Path) -> CommandResult<()> {
     let book = state.library_blocking(|lib| lib.get(id))?;
-    if book.format != BookFormat::Cbz || book.cover == CoverStatus::Failed {
+    if book.cover == CoverStatus::Failed {
         return Err(CommandError::new(ErrorCode::NotFound, "sin portada"));
     }
 
     // Se abre aparte (no en la caché de lectura) para no expulsar el libro que
     // se está leyendo al recorrer la biblioteca.
-    let result = ComicArchive::open(&book.path).and_then(|mut archive| {
-        let pages = u32::try_from(archive.page_count()).unwrap_or(u32::MAX);
-        write_comic_cover(&mut archive, path).map(|()| pages)
-    });
+    let result = match book.format {
+        BookFormat::Cbz => ComicArchive::open(&book.path).and_then(|mut archive| {
+            let pages = u32::try_from(archive.page_count()).unwrap_or(u32::MAX);
+            write_comic_cover(&mut archive, path).map(|()| pages)
+        }),
+        BookFormat::Epub => epub_cover(state, id, &book.path, path),
+        BookFormat::Cbr | BookFormat::Cb7 | BookFormat::Pdf => {
+            return Err(CommandError::new(ErrorCode::NotFound, "sin portada"));
+        }
+    };
 
     match result {
-        Ok(pages) => {
+        Ok(units) => {
             state.library_blocking(|lib| {
-                lib.set_page_count(id, pages)?;
+                lib.set_page_count(id, units)?;
                 lib.set_cover_status(id, CoverStatus::Ready)
             })?;
             Ok(())
@@ -156,6 +218,29 @@ fn generate_cover(state: &AppState, id: BookId, path: &std::path::Path) -> Comma
             Err(error.into())
         }
     }
+}
+
+/// Portada de un EPUB. De paso, completa los metadatos de libros importados
+/// antes de que se leyeran (v0.2.0 y anteriores).
+fn epub_cover(
+    state: &AppState,
+    id: BookId,
+    book_path: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<u32, CoreError> {
+    let mut book = EpubBook::open(book_path)?;
+    let metadata = metadata::from_epub(&book);
+    if !metadata.is_empty()
+        && let Err(error) = state.library_blocking(|lib| lib.update_metadata(id, &metadata))
+    {
+        tracing::warn!(%id, %error, "no se pudieron guardar los metadatos");
+    }
+    let units = u32::try_from(book.spine().len()).unwrap_or(u32::MAX);
+    let cover = book
+        .read_cover()?
+        .ok_or_else(|| CoreError::Image("el libro no declara portada".to_owned()))?;
+    write_cover(&cover, destination)?;
+    Ok(units)
 }
 
 fn image(image_type: ImageType, bytes: Vec<u8>) -> HttpResponse {
@@ -233,6 +318,22 @@ mod tests {
     #[test]
     fn rejects_negative_page() {
         assert_eq!(parse_route("/page/3/-1"), None);
+    }
+
+    #[test]
+    fn parses_epub_route_with_encoded_path() {
+        assert_eq!(
+            parse_route("/epub/7/OEBPS/Text/cap%201.xhtml"),
+            Some(Route::Epub(
+                BookId::new(7),
+                "OEBPS/Text/cap 1.xhtml".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn epub_route_rejects_traversal() {
+        assert_eq!(parse_route("/epub/7/../../secreto"), None);
     }
 
     #[test]
