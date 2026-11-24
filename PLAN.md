@@ -85,16 +85,16 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Fase 3 — EPUB (v0.3.0)
 
 ### Tareas
-- [ ] 3.1 Parser EPUB (container.xml → OPF → spine, TOC nav/NCX, metadatos, portada) con normalización segura de rutas + tests
-- [ ] 3.2 Migración 3: `author`, `series`; importación con metadatos reales
-- [ ] 3.3 Recursos EPUB por `nebula://` con CSP que bloquea scripts
-- [ ] 3.4 `EpubReader`: iframe sandbox, paginación CSS columns, TOC, progreso
-- [ ] 3.5 Ajustes tipográficos: fuente, tamaño, interlineado, márgenes, tema papel/sepia/oscuro
+- [x] 3.1 Parser EPUB (container.xml → OPF → spine, TOC nav/NCX, metadatos, portada) con normalización segura de rutas + tests
+- [x] 3.2 Migración 3: `author`, `series`, `series_index`; importación con metadatos reales (EPUB y `ComicInfo.xml` de CBZ)
+- [x] 3.3 Recursos EPUB por `nebula://` con CSP que bloquea scripts
+- [x] 3.4 `EpubReader`: iframe sandbox, paginación CSS columns, TOC, progreso
+- [x] 3.5 Ajustes tipográficos: fuente, tamaño, interlineado, márgenes, tema papel/sepia/oscuro
 
 ### Validación
-- [ ] Checks automáticos en verde
-- [ ] EPUB 2 y EPUB 3 correctos; EPUB malformado da un error amigable
-- [ ] `<script>` dentro de un EPUB no se ejecuta
+- [x] Checks automáticos en verde
+- [x] EPUB 2 y EPUB 3 correctos; EPUB malformado da un error amigable
+- [x] `<script>` dentro de un EPUB no se ejecuta
 - [ ] Tag `v0.3.0`
 
 ## Fase 4 — PDF (v0.4.0)
@@ -158,6 +158,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.1.0 (scaffold 1.1, preliminar) | 152 MB *commit* (métrica antigua) | — | ~250–380 ms | 1,12 MiB |
 | v0.1.0 (fase 1 completa) | **82 MB** privateWS vacía / **86 MB** con 21 elementos (*commit* 170 / 252 MB) | — | ~85–130 ms hasta ventana visible | 1,80 MiB |
 | v0.2.0 (fase 2 completa) | **94 MB** privateWS con 23 elementos (*commit* 280 MB) | **110–115 MB** leyendo un CBZ de 220 páginas de 1600×2400 (1,3 MB/página); estable tras pasar 45 páginas y volver | ~100–120 ms | 2,06 MiB |
+| v0.3.0 (fase 3, pendiente de aprobación) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -199,3 +200,33 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - Fase 2 aprobada por el usuario; versión subida a 0.2.0 (`Cargo.toml`, `tauri.conf.json`, `package.json`) y tag `v0.2.0` creado.
 - Publicación en GitHub: repositorio público `nebula-reader`, con licencia MIT (`LICENSE`). Antes del primer push se reescribió el historial para que no contenga archivos del asistente (los hashes de commit anteriores a esta fecha ya no son válidos). Cada fase aprobada se publica junto con su tag.
 - Publicación verificada por el usuario: no aparece coautoría del asistente en el repositorio.
+- Fase 3 (3.1–3.5):
+  - **Parser EPUB propio** sobre `zip` + `quick-xml` 0.42 (sin el crate `epub`):
+    - `container.xml` → OPF;
+    - metadatos (título, autores, idioma, serie de EPUB 3 `belongs-to-collection`/`group-position` y de Calibre);
+    - manifiesto y orden de lectura (`linear="no"` incluido);
+    - índice desde `nav` de EPUB 3 o, si no hay, desde NCX de EPUB 2;
+    - portada por `cover-image`, por `<meta name="cover">` o por una imagen cuyo nombre contenga «cover».
+
+    Las rutas se resuelven con decodificación `%XX` y se rechazan las que salen de la raíz (con proptest). Es tolerante con XML descuidado (etiquetas sin cerrar, `&` sueltos) y con BOM.
+  - **Metadatos al importar**: `ComicInfo.xml` de los CBZ (serie, número, guionista) además de EPUB, como se propuso en la fase 2. Un archivo ilegible se importa con el título del nombre. Los libros importados en versiones anteriores completan sus metadatos al generar la portada o al abrirlos. La búsqueda también encuentra por autor y serie.
+  - **`OpenDocument { Comic, Epub }`** en el núcleo (despacho por enum); la caché LRU guarda documentos de cualquier formato.
+  - **Seguridad del contenido EPUB** (validado con un EPUB de prueba con `<script>`, `onerror` y `onclick`: no se ejecuta nada):
+    - el capítulo se descarga por `nebula://`, se sanea (fuera `script`, `iframe`, `object`, `embed`, `form`, `base`, `meta http-equiv`, atributos `on*` y URL `javascript:`) y se inserta en un `<iframe sandbox="allow-same-origin">` sin `allow-scripts`;
+    - además, el protocolo sirve los recursos EPUB con `Content-Security-Policy: script-src 'none'` y `X-Content-Type-Options: nosniff`;
+    - los enlaces externos se bloquean con un aviso.
+
+    Se añaden a la CSP de la app `connect-src`, `style-src` y `font-src` para `nebula`.
+  - **Lector**:
+    - paginación con columnas CSS y dos columnas por página a partir de 1000 px de ancho (como un libro abierto);
+    - índice anidado con el capítulo actual resaltado;
+    - enlaces internos con anclas, teclado, rueda y clic en los laterales;
+    - progreso global ponderado por el tamaño de cada documento;
+    - posición guardada como `Locator::Epub { spine, position }`, independiente del tamaño de letra y de ventana.
+  - **Ajustes tipográficos** (`epubStyle`, persistido y validado): temas papel, sepia y oscuro; fuente del libro, serif o sans; tamaño del 80 al 200 %; interlineado de 1,2 a 2,0; márgenes estrecho, normal o amplio.
+  - **Fallo detectado y corregido** en la verificación: los `<style>` emiten un evento `load` al cambiar su contenido. El listener de `load` (pensado para imágenes) repaginaba, reescribía el estilo y volvía a dispararse: unas 10 000 repaginaciones por segundo, CPU al máximo y el renderizador por encima de 1 GB. Ahora el listener solo atiende imágenes, el estilo solo se reescribe si cambia y los listeners se registran una vez.
+  - **Herramienta de desarrollo**: `cargo run -p nebula-core --example make_epub -- <carpeta>` genera un EPUB 3 de prueba (con contenido hostil) y un EPUB 2.
+  - **Pendiente o limitado**:
+    - Las fuentes con tamaño fijo en `px` dentro del CSS del libro no cambian con el ajuste de tamaño.
+    - No hay búsqueda de texto dentro del libro ni subrayados (candidatos para la fase 6, junto con los marcadores).
+    - EPUB con DRM o de diseño fijo (*fixed layout*) no están soportados.

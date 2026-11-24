@@ -33,6 +33,9 @@ cargo run -p nebula-core --example import -- "$env:LOCALAPPDATA\com.nebulareader
 # Generar un cómic de prueba (220 páginas de 1600×2400, numeradas)
 cargo run --release -p nebula-core --example make_comic -- C:\ruta\prueba.cbz 220 1600 2400
 
+# Generar EPUB de prueba (EPUB 3 con contenido hostil y EPUB 2)
+cargo run -p nebula-core --example make_epub -- C:\ruta\epub
+
 # Medir arranque y memoria de la build release (y guardar una captura)
 npm run tauri build -- --no-bundle
 powershell -ExecutionPolicy Bypass -File scripts\measure.ps1
