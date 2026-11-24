@@ -1,5 +1,6 @@
 <script lang="ts">
   import ComicReader from "#lib/components/ComicReader.svelte";
+  import EpubReader from "#lib/components/EpubReader.svelte";
   import DropOverlay from "#lib/components/DropOverlay.svelte";
   import HomeView from "#lib/components/HomeView.svelte";
   import LibraryView from "#lib/components/LibraryView.svelte";
@@ -40,7 +41,11 @@
   {/if}
   {#if nav.reading}
     {#key nav.reading.id}
-      <ComicReader book={nav.reading} />
+      {#if nav.reading.format === "epub"}
+        <EpubReader book={nav.reading} />
+      {:else}
+        <ComicReader book={nav.reading} />
+      {/if}
     {/key}
   {:else}
   <div class="body">

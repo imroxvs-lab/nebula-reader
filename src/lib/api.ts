@@ -57,7 +57,18 @@ export function pageUrl(book: Book, index: number): string {
   return `${MEDIA_BASE}/page/${book.id}/${index}?v=${book.addedAt}`;
 }
 
+/** URL de un recurso de un EPUB (ruta dentro del archivo, sin codificar). */
+export function epubUrl(book: Book, href: string): string {
+  const encoded = href.split("/").map(encodeURIComponent).join("/");
+  return `${MEDIA_BASE}/epub/${book.id}/${encoded}?v=${book.addedAt}`;
+}
+
+/** URL base de los recursos de un EPUB (para resolver rutas relativas). */
+export function epubBase(book: Book): string {
+  return `${MEDIA_BASE}/epub/${book.id}/`;
+}
+
 /** Si el formato ya tiene portada en miniatura. */
 export function hasCover(book: Book): boolean {
-  return book.format === "cbz" && book.cover !== "failed";
+  return (book.format === "cbz" || book.format === "epub") && book.cover !== "failed";
 }

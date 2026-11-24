@@ -64,7 +64,8 @@
       .then((result) => {
         if (cancelled) return;
         opened = result;
-        const saved = result.progress?.locator.index ?? 0;
+        const locator = result.progress?.locator;
+        const saved = locator?.type === "page" ? locator.index : 0;
         index = Math.min(Math.max(saved, 0), result.pageCount - 1);
       })
       .catch((error) => {

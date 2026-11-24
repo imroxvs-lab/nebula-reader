@@ -18,11 +18,31 @@ export interface Book {
   cover: CoverStatus;
   /** Fracción leída (0–1), o `null` si no se ha empezado. */
   progress: number | null;
+  author: string | null;
+  series: string | null;
+  seriesIndex: number | null;
 }
 
 export type CoverStatus = "pending" | "ready" | "failed";
 
-export type Locator = { type: "page"; index: number };
+export type Locator =
+  | { type: "page"; index: number }
+  | { type: "epub"; spine: number; position: number };
+
+export interface SpineItem {
+  href: string;
+  size: number;
+  linear: boolean;
+}
+
+export interface TocEntry {
+  title: string;
+  href: string;
+  fragment: string | null;
+  level: number;
+}
+
+export type ReaderContent = { type: "comic" } | { type: "epub"; spine: SpineItem[]; toc: TocEntry[] };
 
 export interface ReadingProgress {
   locator: Locator;
@@ -34,6 +54,7 @@ export interface OpenedBook {
   book: Book;
   pageCount: number;
   progress: ReadingProgress | null;
+  content: ReaderContent;
 }
 
 export interface LibraryQuery {
@@ -77,3 +98,17 @@ export interface CommandError {
 export type ThemePreference = "system" | "light" | "dark";
 
 export type FitMode = "page" | "width" | "original";
+
+export type EpubTheme = "paper" | "sepia" | "dark";
+export type EpubFont = "original" | "serif" | "sans";
+
+export interface EpubStyle {
+  theme: EpubTheme;
+  font: EpubFont;
+  /** Porcentaje del tamaño base (80–200). */
+  fontSize: number;
+  /** Interlineado (1.2–2.0). */
+  lineHeight: number;
+  /** Margen lateral en píxeles. */
+  margin: number;
+}

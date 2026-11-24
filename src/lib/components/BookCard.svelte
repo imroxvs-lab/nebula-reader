@@ -21,7 +21,7 @@
   const subtitle = $derived(
     book.progress !== null
       ? `${formatPercent(book.progress)} leído`
-      : `${comic ? "Cómic" : "Libro"} · ${formatSize(book.fileSize)}`,
+      : (book.author ?? `${comic ? "Cómic" : "Libro"} · ${formatSize(book.fileSize)}`),
   );
 
   function contextMenu(event: MouseEvent) {
