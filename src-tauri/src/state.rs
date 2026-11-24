@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use nebula_core::pdf::PdfEngine;
-use nebula_core::{Book, BookFormat, BookId, CoreResult, Library, OpenDocument};
+use nebula_core::{Book, BookId, CoreResult, Library, OpenDocument};
 use tokio::sync::Semaphore;
 
 use crate::documents::{DocumentCache, SharedDocument};
@@ -104,20 +104,9 @@ impl AppState {
     /// Solo desde hilos bloqueantes.
     pub fn document(&self, id: BookId) -> CommandResult<(Book, SharedDocument)> {
         let book = self.library_blocking(|lib| lib.get(id))?;
-        ensure_readable(&book)?;
         let document = self
             .documents
             .get_or_open(id, || OpenDocument::open(&book.path, book.format))?;
         Ok((book, document))
-    }
-}
-
-/// Comprueba que el formato ya tiene lector.
-pub fn ensure_readable(book: &Book) -> CommandResult<()> {
-    match book.format {
-        BookFormat::Cbz | BookFormat::Epub | BookFormat::Pdf => Ok(()),
-        BookFormat::Cbr | BookFormat::Cb7 => Err(CommandError::unsupported(
-            "Los cómics CBR y CB7 todavía no se pueden abrir; llegarán en una próxima versión.",
-        )),
     }
 }

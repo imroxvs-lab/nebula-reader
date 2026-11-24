@@ -39,7 +39,12 @@ pub struct OpenedBook {
     pub progress: Option<ReadingProgress>,
     /// Estructura específica del formato.
     pub content: ReaderContent,
+    /// Opciones de lectura guardadas para este libro (JSON), si las hay.
+    pub reader_options: Option<String>,
 }
+
+/// Tamaño máximo del JSON de opciones de lectura.
+const MAX_READER_OPTIONS_LEN: usize = 2048;
 
 /// Estructura del documento que necesita cada lector.
 #[derive(Debug, Clone, Serialize)]
@@ -202,9 +207,29 @@ pub async fn book_open(state: State<'_, AppState>, id: BookId) -> CommandResult<
                     page_count,
                     progress: lib.progress(id)?,
                     content,
+                    reader_options: lib.reader_options(id)?,
                 })
             })
         })
+        .await
+}
+
+/// Guarda las opciones de lectura de un libro (modo de página, sentido…).
+#[tauri::command]
+pub async fn book_options_set(
+    state: State<'_, AppState>,
+    id: BookId,
+    options: String,
+) -> CommandResult<()> {
+    if options.len() > MAX_READER_OPTIONS_LEN
+        || serde_json::from_str::<serde_json::Value>(&options).is_err()
+    {
+        return Err(CommandError::invalid_input(
+            "opciones de lectura no válidas",
+        ));
+    }
+    state
+        .with_library(move |lib| lib.set_reader_options(id, Some(&options)))
         .await
 }
 

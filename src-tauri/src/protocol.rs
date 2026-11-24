@@ -230,15 +230,13 @@ fn generate_cover(state: &AppState, id: BookId, path: &std::path::Path) -> Comma
     // Se abre aparte (no en la caché de lectura) para no expulsar el libro que
     // se está leyendo al recorrer la biblioteca.
     let result = match book.format {
-        BookFormat::Cbz => ComicArchive::open(&book.path).and_then(|mut archive| {
-            let pages = u32::try_from(archive.page_count()).unwrap_or(u32::MAX);
-            write_comic_cover(&mut archive, path).map(|()| pages)
-        }),
+        BookFormat::Cbz | BookFormat::Cbr | BookFormat::Cb7 => ComicArchive::open(&book.path)
+            .and_then(|mut archive| {
+                let pages = u32::try_from(archive.page_count()).unwrap_or(u32::MAX);
+                write_comic_cover(&mut archive, path).map(|()| pages)
+            }),
         BookFormat::Epub => epub_cover(state, id, &book.path, path),
         BookFormat::Pdf => pdf_cover(state, id, &book.path, path),
-        BookFormat::Cbr | BookFormat::Cb7 => {
-            return Err(CommandError::new(ErrorCode::NotFound, "sin portada"));
-        }
     };
 
     match result {

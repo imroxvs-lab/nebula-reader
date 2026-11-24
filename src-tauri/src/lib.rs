@@ -55,6 +55,7 @@ pub fn run() -> tauri::Result<()> {
             commands::library_continue_reading,
             commands::book_open,
             commands::book_close,
+            commands::book_options_set,
             commands::progress_save,
             commands::settings_get,
             commands::settings_set,
