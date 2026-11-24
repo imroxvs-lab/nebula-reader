@@ -1,8 +1,13 @@
 //! Herramienta de desarrollo: genera un CBZ de prueba con páginas JPEG numeradas.
 //!
 //! ```text
-//! cargo run --release -p nebula-core --example make_comic -- <salida.cbz> [páginas] [ancho] [alto]
+//! cargo run --release -p nebula-core --example make_comic -- <salida> [páginas] [ancho] [alto] [apaisadas]
 //! ```
+//!
+//! - `<salida>` termina en `.cbz` (ZIP), `.cb7` (7z) o es una carpeta (imágenes
+//!   sueltas, p. ej. para empaquetarlas después con WinRAR como CBR).
+//! - `[apaisadas]`: lista de páginas separadas por comas que se generan con
+//!   ancho y alto intercambiados (dobles páginas escaneadas), p. ej. `7,12`.
 //!
 //! Cada página tiene un color distinto, textura de ruido (para que el tamaño del
 //! JPEG sea realista) y su número dibujado con dígitos de siete segmentos. Los
@@ -31,8 +36,16 @@ fn main() -> ExitCode {
             .unwrap_or(default)
     };
     let (pages, width, height) = (number(220), number(1600), number(2400));
+    let wide: Vec<u32> = args
+        .next()
+        .map(|list| {
+            list.split(',')
+                .filter_map(|p| p.trim().parse().ok())
+                .collect()
+        })
+        .unwrap_or_default();
 
-    match write_comic(&output, pages, width, height) {
+    match write_comic(&output, pages, width, height, &wide) {
         Ok(bytes) => {
             println!(
                 "{} ({pages} páginas, {} MB)",
@@ -53,19 +66,56 @@ fn write_comic(
     pages: u32,
     width: u32,
     height: u32,
+    wide: &[u32],
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let mut zip = zip::ZipWriter::new(BufWriter::new(File::create(output)?));
-    // Los JPEG ya están comprimidos: se guardan sin volver a comprimir, como
-    // hacen la mayoría de los CBZ reales.
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    for page in 1..=pages {
-        let image = render_page(page, width, height);
+    let jpeg_of = |page: u32| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let (w, h) = if wide.contains(&page) {
+            (height, width)
+        } else {
+            (width, height)
+        };
         let mut jpeg = Vec::new();
-        JpegEncoder::new_with_quality(&mut jpeg, 85).encode_image(&image)?;
-        zip.start_file(format!("p{page}.jpg"), options)?;
-        zip.write_all(&jpeg)?;
+        JpegEncoder::new_with_quality(&mut jpeg, 85).encode_image(&render_page(page, w, h))?;
+        Ok(jpeg)
+    };
+    let extension = output
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    match extension.as_deref() {
+        Some("cbz") => {
+            let mut zip = zip::ZipWriter::new(BufWriter::new(File::create(output)?));
+            // Los JPEG ya están comprimidos: se guardan sin volver a comprimir,
+            // como hacen la mayoría de los CBZ reales.
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            for page in 1..=pages {
+                zip.start_file(format!("p{page}.jpg"), options)?;
+                zip.write_all(&jpeg_of(page)?)?;
+            }
+            zip.finish()?.flush()?;
+        }
+        Some("cb7") => {
+            let mut writer = sevenz_rust2::ArchiveWriter::new(File::create(output)?)?;
+            for page in 1..=pages {
+                writer.push_archive_entry(
+                    sevenz_rust2::ArchiveEntry::new_file(&format!("p{page}.jpg")),
+                    Some(std::io::Cursor::new(jpeg_of(page)?)),
+                )?;
+            }
+            writer.finish()?;
+        }
+        _ => {
+            std::fs::create_dir_all(output)?;
+            let mut total = 0;
+            for page in 1..=pages {
+                let jpeg = jpeg_of(page)?;
+                total += jpeg.len() as u64;
+                std::fs::write(output.join(format!("p{page}.jpg")), jpeg)?;
+            }
+            return Ok(total);
+        }
     }
-    zip.finish()?.flush()?;
     Ok(std::fs::metadata(output)?.len())
 }
 

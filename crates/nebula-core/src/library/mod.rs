@@ -282,6 +282,35 @@ impl Library {
         Ok(())
     }
 
+    /// Opciones de lectura guardadas para un libro (JSON), si las hay.
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn reader_options(&self, id: BookId) -> CoreResult<Option<String>> {
+        self.conn
+            .prepare_cached("SELECT reader_options FROM books WHERE id = ?1")?
+            .query_row([id.get()], |row| row.get(0))
+            .optional()?
+            .ok_or(CoreError::NotFound(id))
+    }
+
+    /// Guarda las opciones de lectura de un libro (`None` las borra).
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn set_reader_options(&self, id: BookId, options: Option<&str>) -> CoreResult<()> {
+        let updated = self
+            .conn
+            .prepare_cached("UPDATE books SET reader_options = ?2 WHERE id = ?1")?
+            .execute(params![id.get(), options])?;
+        if updated == 0 {
+            return Err(CoreError::NotFound(id));
+        }
+        Ok(())
+    }
+
     /// Guarda el número de páginas de un libro.
     ///
     /// # Errors
@@ -911,6 +940,29 @@ mod tests {
             lib.get(id).ok().map(|b| (b.title, b.author)),
             Some(("Título real".to_owned(), Some("Autora".to_owned())))
         );
+    }
+
+    #[test]
+    fn reader_options_roundtrip() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbr", 1);
+        let before = lib.reader_options(id).ok();
+        assert!(
+            lib.set_reader_options(id, Some(r#"{"layout":"double"}"#))
+                .is_ok()
+        );
+        assert_eq!(
+            (before, lib.reader_options(id).ok()),
+            (Some(None), Some(Some(r#"{"layout":"double"}"#.to_owned())))
+        );
+    }
+
+    #[test]
+    fn reader_options_of_missing_book_is_not_found() {
+        assert!(matches!(
+            library().reader_options(BookId::new(9)),
+            Err(CoreError::NotFound(_))
+        ));
     }
 
     #[test]

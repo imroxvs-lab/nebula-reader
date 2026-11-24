@@ -25,13 +25,13 @@ impl OpenDocument {
     /// - Los errores de apertura de cada formato.
     pub fn open(path: &Path, format: BookFormat) -> CoreResult<Self> {
         match format {
-            BookFormat::Cbz => ComicArchive::open(path).map(Self::Comic),
-            BookFormat::Epub => EpubBook::open(path).map(Self::Epub),
-            BookFormat::Cbr | BookFormat::Cb7 | BookFormat::Pdf => {
-                Err(CoreError::UnsupportedFormat {
-                    path: path.to_path_buf(),
-                })
+            BookFormat::Cbz | BookFormat::Cbr | BookFormat::Cb7 => {
+                ComicArchive::open(path).map(Self::Comic)
             }
+            BookFormat::Epub => EpubBook::open(path).map(Self::Epub),
+            BookFormat::Pdf => Err(CoreError::UnsupportedFormat {
+                path: path.to_path_buf(),
+            }),
         }
     }
 

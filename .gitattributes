@@ -3,3 +3,6 @@
 *.png binary
 *.ico binary
 *.icns binary
+*.cbr binary
+*.cbz binary
+*.cb7 binary

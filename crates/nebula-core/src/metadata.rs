@@ -1,25 +1,19 @@
 //! Metadatos de libros y cómics leídos del propio archivo.
 //!
 //! - EPUB: paquete OPF (`dc:title`, `dc:creator`, serie de EPUB 3 o Calibre).
-//! - CBZ: `ComicInfo.xml` (formato de ComicRack: `Series`, `Number`, `Writer`).
+//! - CBZ, CBR y CB7: `ComicInfo.xml` (formato de ComicRack: `Series`, `Number`, `Writer`).
 //!
 //! Leer metadatos nunca es imprescindible: si falla, se usa el nombre del archivo.
 
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
-use quick_xml::events::Event;
-use zip::ZipArchive;
-
-use crate::archive::read_entry;
+use crate::archive::ComicArchive;
 use crate::domain::BookFormat;
 use crate::epub::EpubBook;
 use crate::error::CoreResult;
 use crate::xml;
+use quick_xml::events::Event;
 
-/// Tamaño máximo aceptado para `ComicInfo.xml`.
-const MAX_COMIC_INFO_BYTES: u64 = 1024 * 1024;
 /// Longitud máxima de cada campo guardado.
 const MAX_FIELD_CHARS: usize = 300;
 
@@ -53,8 +47,9 @@ impl BookMetadata {
 pub fn read_metadata(path: &Path, format: BookFormat) -> CoreResult<BookMetadata> {
     match format {
         BookFormat::Epub => Ok(from_epub(&EpubBook::open(path)?)),
-        BookFormat::Cbz => read_comic_info(path),
-        BookFormat::Cbr | BookFormat::Cb7 | BookFormat::Pdf => Ok(BookMetadata::default()),
+        BookFormat::Cbz | BookFormat::Cbr | BookFormat::Cb7 => read_comic_info(path),
+        // Los metadatos de PDF necesitan el motor PDFium (capa de aplicación).
+        BookFormat::Pdf => Ok(BookMetadata::default()),
     }
 }
 
@@ -76,20 +71,11 @@ pub fn from_epub(book: &EpubBook) -> BookMetadata {
 }
 
 fn read_comic_info(path: &Path) -> CoreResult<BookMetadata> {
-    let file = File::open(path).map_err(|e| crate::CoreError::io(path, e))?;
-    let mut zip =
-        ZipArchive::new(BufReader::new(file)).map_err(|e| crate::CoreError::archive(path, &e))?;
-    // Normalmente está en la raíz; se acepta también sin distinguir mayúsculas.
-    let name = zip
-        .file_names()
-        .flatten()
-        .find(|name| name.eq_ignore_ascii_case("ComicInfo.xml"))
-        .map(std::borrow::Cow::into_owned);
-    let Some(name) = name else {
-        return Ok(BookMetadata::default());
-    };
-    let bytes = read_entry(&mut zip, path, &name, MAX_COMIC_INFO_BYTES)?;
-    Ok(parse_comic_info(&String::from_utf8_lossy(&bytes)))
+    let mut archive = ComicArchive::open(path)?;
+    Ok(archive
+        .read_comic_info()?
+        .map(|bytes| parse_comic_info(&String::from_utf8_lossy(&bytes)))
+        .unwrap_or_default())
 }
 
 /// Interpreta un `ComicInfo.xml`.

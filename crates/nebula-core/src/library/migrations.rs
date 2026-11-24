@@ -60,6 +60,11 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE books ADD COLUMN series_index REAL;
     CREATE INDEX books_series_idx ON books (series COLLATE NOCASE, series_index);
     ",
+    // 4: opciones de lectura por libro (JSON opaco para el núcleo: modo de
+    // página, sentido de lectura…; lo valida la interfaz).
+    r"
+    ALTER TABLE books ADD COLUMN reader_options TEXT;
+    ",
 ];
 
 /// Versión de esquema más reciente que conoce esta compilación.

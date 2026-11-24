@@ -1,8 +1,12 @@
-//! Lectura de cómics empaquetados (CBZ).
+//! Lectura de cómics empaquetados: CBZ (ZIP), CBR (RAR) y CB7 (7z).
 //!
 //! Las páginas se leen bajo demanda desde el archivo comprimido, sin extraerlo
-//! a disco. Los backends RAR y 7z se añadirán en la fase 5.
+//! a disco.
 
+mod rar;
+mod sevenz;
+
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -86,24 +90,82 @@ pub struct PageData {
 
 #[derive(Debug, Clone)]
 struct PageEntry {
-    /// Índice de la entrada dentro del ZIP.
+    /// Posición de la entrada dentro del archivo (orden de almacenamiento).
     entry: usize,
     /// Ruta dentro del archivo, para ordenar y diagnosticar.
     name: String,
     image_type: ImageType,
 }
 
+/// Entrada tal como la lista cada backend, antes de filtrar.
+#[derive(Debug, Clone)]
+struct RawEntry {
+    ordinal: usize,
+    name: String,
+    is_file: bool,
+    encrypted: bool,
+}
+
+/// Formato real del contenedor, detectado por su firma (no por la extensión:
+/// muchos `.cbr` son en realidad ZIP y viceversa).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerKind {
+    /// ZIP (CBZ).
+    Zip,
+    /// RAR 4 o 5 (CBR).
+    Rar,
+    /// 7z (CB7).
+    SevenZ,
+}
+
+impl ContainerKind {
+    /// Detecta el formato por los primeros bytes.
+    pub fn sniff(header: &[u8]) -> Option<Self> {
+        if header.starts_with(b"PK\x03\x04") || header.starts_with(b"PK\x05\x06") {
+            Some(Self::Zip)
+        } else if header.starts_with(b"Rar!\x1a\x07") {
+            Some(Self::Rar)
+        } else if header.starts_with(b"7z\xbc\xaf\x27\x1c") {
+            Some(Self::SevenZ)
+        } else {
+            None
+        }
+    }
+}
+
+/// Acceso al contenedor según su formato.
+#[derive(Debug)]
+enum ArchiveBackend {
+    Zip(ZipArchive<BufReader<File>>),
+    /// RAR se reabre en cada lectura (la biblioteca UnRAR es secuencial).
+    Rar,
+    SevenZ(Box<sevenz::SevenZ>),
+}
+
+/// Páginas leídas por adelantado en formatos secuenciales (RAR, 7z sólido).
+const READ_AHEAD: usize = 3;
+/// Páginas que se conservan en la caché de lectura anticipada.
+const CACHE_PAGES: usize = 8;
+
 /// Cómic abierto, con su índice de páginas ordenado.
 #[derive(Debug)]
 pub struct ComicArchive {
     path: PathBuf,
-    zip: ZipArchive<BufReader<File>>,
+    kind: ContainerKind,
+    backend: ArchiveBackend,
     pages: Vec<PageEntry>,
     limits: ArchiveLimits,
+    /// Páginas leídas por adelantado (índice de página, bytes), la más reciente al final.
+    cache: VecDeque<(usize, Vec<u8>)>,
+    /// Entrada `ComicInfo.xml` (ordinal y nombre), si existe.
+    comic_info: Option<(usize, String)>,
 }
 
+/// Tamaño máximo aceptado para `ComicInfo.xml`.
+const MAX_COMIC_INFO_BYTES: u64 = 1024 * 1024;
+
 impl ComicArchive {
-    /// Abre un CBZ con los límites por defecto.
+    /// Abre un cómic con los límites por defecto.
     ///
     /// # Errors
     /// Ver [`ComicArchive::open_with_limits`].
@@ -111,7 +173,8 @@ impl ComicArchive {
         Self::open_with_limits(path, ArchiveLimits::default())
     }
 
-    /// Abre un CBZ e indexa sus páginas en orden natural.
+    /// Abre un cómic (ZIP, RAR o 7z, detectado por su firma) e indexa sus
+    /// páginas en orden natural.
     ///
     /// Se ignoran directorios, entradas cifradas, metadatos de macOS
     /// (`__MACOSX/`, `._*`), archivos ocultos, rutas que salen del archivo
@@ -121,62 +184,114 @@ impl ComicArchive {
     ///
     /// # Errors
     /// - [`CoreError::Io`] si no se puede abrir el archivo.
-    /// - [`CoreError::Archive`] si no es un ZIP válido o supera los límites.
+    /// - [`CoreError::Protected`] si está cifrado.
+    /// - [`CoreError::Archive`] si no es un formato válido o supera los límites.
     /// - [`CoreError::NoPages`] si no contiene ninguna imagen.
     pub fn open_with_limits(path: impl AsRef<Path>, limits: ArchiveLimits) -> CoreResult<Self> {
         let path = path.as_ref().to_path_buf();
-        let file = File::open(&path).map_err(|e| CoreError::io(&path, e))?;
-        let mut zip =
-            ZipArchive::new(BufReader::new(file)).map_err(|e| CoreError::archive(&path, &e))?;
+        let mut file = File::open(&path).map_err(|e| CoreError::io(&path, e))?;
+        let mut header = [0u8; 8];
+        let read = file
+            .read(&mut header)
+            .map_err(|e| CoreError::io(&path, e))?;
+        let kind = ContainerKind::sniff(&header[..read]).ok_or_else(|| CoreError::Archive {
+            path: path.clone(),
+            reason: "no es un archivo ZIP, RAR ni 7z".to_owned(),
+        })?;
 
-        if zip.len() > limits.max_entries {
+        let (backend, entries) = match kind {
+            ContainerKind::Zip => {
+                drop(file);
+                let file = File::open(&path).map_err(|e| CoreError::io(&path, e))?;
+                let mut zip = ZipArchive::new(BufReader::new(file))
+                    .map_err(|e| CoreError::archive(&path, &e))?;
+                let entries = list_zip(&mut zip, &path, limits)?;
+                (ArchiveBackend::Zip(zip), entries)
+            }
+            ContainerKind::Rar => (ArchiveBackend::Rar, rar::list(&path)?),
+            ContainerKind::SevenZ => {
+                let (archive, entries) = sevenz::SevenZ::open(&path)?;
+                (ArchiveBackend::SevenZ(Box::new(archive)), entries)
+            }
+        };
+        if entries.len() > limits.max_entries {
             return Err(CoreError::Archive {
                 path,
                 reason: format!(
                     "tiene {} entradas; el máximo es {}",
-                    zip.len(),
+                    entries.len(),
                     limits.max_entries
                 ),
             });
         }
 
-        let mut pages = Vec::new();
-        for entry in 0..zip.len() {
-            let file = zip
-                .by_index_raw(entry)
-                .map_err(|e| CoreError::archive(&path, &e))?;
-            if file.is_dir() || file.encrypted() || file.enclosed_name().is_none() {
-                continue;
-            }
-            let Ok(name) = file.name() else { continue };
-            if is_ignored(&name) {
-                continue;
-            }
-            if let Some(image_type) = ImageType::from_name(&name) {
-                pages.push(PageEntry {
-                    entry,
-                    name: name.into_owned(),
+        let any_encrypted = entries.iter().any(|e| e.encrypted);
+        let comic_info = entries
+            .iter()
+            .find(|e| e.is_file && !e.encrypted && e.name.eq_ignore_ascii_case("ComicInfo.xml"))
+            .map(|e| (e.ordinal, e.name.clone()));
+        let mut pages: Vec<PageEntry> = entries
+            .into_iter()
+            .filter(|e| e.is_file && !e.encrypted && is_safe_name(&e.name) && !is_ignored(&e.name))
+            .filter_map(|e| {
+                ImageType::from_name(&e.name).map(|image_type| PageEntry {
+                    entry: e.ordinal,
+                    name: e.name,
                     image_type,
-                });
-            }
-        }
+                })
+            })
+            .collect();
 
         if pages.is_empty() {
-            return Err(CoreError::NoPages(path));
+            return Err(if any_encrypted {
+                CoreError::Protected(path)
+            } else {
+                CoreError::NoPages(path)
+            });
         }
         pages.sort_by(|a, b| natural_cmp(&a.name, &b.name));
 
         Ok(Self {
             path,
-            zip,
+            kind,
+            backend,
             pages,
             limits,
+            cache: VecDeque::with_capacity(CACHE_PAGES),
+            comic_info,
         })
+    }
+
+    /// Contenido de `ComicInfo.xml` (metadatos de ComicRack), si existe.
+    ///
+    /// # Errors
+    /// Errores de lectura del archivo.
+    pub fn read_comic_info(&mut self) -> CoreResult<Option<Vec<u8>>> {
+        let Some((ordinal, name)) = self.comic_info.clone() else {
+            return Ok(None);
+        };
+        let limit = MAX_COMIC_INFO_BYTES;
+        let bytes = match &mut self.backend {
+            ArchiveBackend::Zip(zip) => read_zip_entry(zip, &self.path, ordinal, 0, limit)?,
+            ArchiveBackend::Rar => rar::read(&self.path, &[ordinal], limit)?
+                .remove(&ordinal)
+                .unwrap_or_default(),
+            ArchiveBackend::SevenZ(archive) => archive
+                .read(&self.path, &[name.as_str()], limit)?
+                .remove(&name)
+                .unwrap_or_default(),
+        };
+        Ok(Some(bytes))
     }
 
     /// Ruta del archivo.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Formato real del contenedor.
+    pub fn kind(&self) -> ContainerKind {
+        self.kind
     }
 
     /// Número de páginas.
@@ -191,8 +306,10 @@ impl ComicArchive {
 
     /// Lee los bytes de una página.
     ///
-    /// La lectura se corta en [`ArchiveLimits::max_page_bytes`] aunque la
-    /// cabecera del ZIP declare un tamaño menor (protección contra zip bombs).
+    /// En ZIP la lectura es directa. En RAR y 7z sólido se leen además las
+    /// [`READ_AHEAD`] páginas siguientes en la misma pasada y se guardan en una
+    /// caché pequeña, porque leer cada página por separado obligaría a recorrer
+    /// el archivo desde el principio cada vez.
     ///
     /// # Errors
     /// - [`CoreError::PageOutOfRange`] si el índice no existe.
@@ -200,33 +317,155 @@ impl ComicArchive {
     /// - [`CoreError::Archive`] si la entrada está dañada.
     pub fn read_page(&mut self, index: usize) -> CoreResult<PageData> {
         let count = self.pages.len();
-        let page = self
+        let image_type = self
             .pages
             .get(index)
-            .ok_or(CoreError::PageOutOfRange { index, count })?;
-        let (entry, image_type) = (page.entry, page.image_type);
-        let limit = self.limits.max_page_bytes;
-
-        let file = self
-            .zip
-            .by_index(entry)
-            .map_err(|e| CoreError::archive(&self.path, &e))?;
-        if file.size() > limit {
-            return Err(CoreError::PageTooLarge { index, limit });
+            .ok_or(CoreError::PageOutOfRange { index, count })?
+            .image_type;
+        if let Some(position) = self.cache.iter().position(|(cached, _)| *cached == index)
+            && let Some((_, bytes)) = self.cache.remove(position)
+        {
+            self.cache.push_back((index, bytes.clone()));
+            return Ok(PageData { bytes, image_type });
         }
-        let capacity = usize::try_from(file.size()).unwrap_or_default();
-        let mut bytes = Vec::with_capacity(capacity);
-        file.take(limit + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|e| CoreError::Archive {
-                path: self.path.clone(),
-                reason: format!("página {index} dañada: {e}"),
-            })?;
+
+        let limit = self.limits.max_page_bytes;
+        let bytes = match &mut self.backend {
+            ArchiveBackend::Zip(zip) => {
+                read_zip_entry(zip, &self.path, self.pages[index].entry, index, limit)?
+            }
+            ArchiveBackend::Rar => {
+                let window = window(index, count);
+                let ordinals: Vec<usize> = window.iter().map(|&i| self.pages[i].entry).collect();
+                let mut found =
+                    rar::read(&self.path, &ordinals, limit).map_err(|e| page_index_in(e, index))?;
+                let mut target = None;
+                for page in window {
+                    if let Some(bytes) = found.remove(&self.pages[page].entry) {
+                        if page == index {
+                            target = Some(bytes);
+                        } else {
+                            remember(&mut self.cache, page, bytes);
+                        }
+                    }
+                }
+                target.ok_or_else(|| missing(&self.path, index))?
+            }
+            ArchiveBackend::SevenZ(archive) => {
+                let window = window(index, count);
+                let names: Vec<&str> = window
+                    .iter()
+                    .map(|&i| self.pages[i].name.as_str())
+                    .collect();
+                let mut found = archive
+                    .read(&self.path, &names, limit)
+                    .map_err(|e| page_index_in(e, index))?;
+                let mut target = None;
+                for page in window {
+                    if let Some(bytes) = found.remove(&self.pages[page].name) {
+                        if page == index {
+                            target = Some(bytes);
+                        } else {
+                            remember(&mut self.cache, page, bytes);
+                        }
+                    }
+                }
+                target.ok_or_else(|| missing(&self.path, index))?
+            }
+        };
         if bytes.len() as u64 > limit {
             return Err(CoreError::PageTooLarge { index, limit });
         }
         Ok(PageData { bytes, image_type })
     }
+}
+
+/// Página pedida y las siguientes que se leen en la misma pasada.
+fn window(index: usize, count: usize) -> Vec<usize> {
+    (index..count.min(index + 1 + READ_AHEAD)).collect()
+}
+
+fn remember(cache: &mut VecDeque<(usize, Vec<u8>)>, page: usize, bytes: Vec<u8>) {
+    cache.retain(|(cached, _)| *cached != page);
+    if cache.len() >= CACHE_PAGES {
+        cache.pop_front();
+    }
+    cache.push_back((page, bytes));
+}
+
+fn missing(path: &Path, index: usize) -> CoreError {
+    CoreError::Archive {
+        path: path.to_path_buf(),
+        reason: format!("no se pudo leer la página {index}"),
+    }
+}
+
+/// Los backends no conocen el índice de página: se corrige en el error.
+fn page_index_in(error: CoreError, index: usize) -> CoreError {
+    match error {
+        CoreError::PageTooLarge { limit, .. } => CoreError::PageTooLarge { index, limit },
+        other => other,
+    }
+}
+
+fn list_zip(
+    zip: &mut ZipArchive<BufReader<File>>,
+    path: &Path,
+    limits: ArchiveLimits,
+) -> CoreResult<Vec<RawEntry>> {
+    if zip.len() > limits.max_entries {
+        return Err(CoreError::Archive {
+            path: path.to_path_buf(),
+            reason: format!(
+                "tiene {} entradas; el máximo es {}",
+                zip.len(),
+                limits.max_entries
+            ),
+        });
+    }
+    let mut entries = Vec::with_capacity(zip.len());
+    for ordinal in 0..zip.len() {
+        let file = zip
+            .by_index_raw(ordinal)
+            .map_err(|e| CoreError::archive(path, &e))?;
+        let Ok(name) = file.name() else { continue };
+        entries.push(RawEntry {
+            ordinal,
+            name: name.into_owned(),
+            is_file: !file.is_dir() && file.enclosed_name().is_some(),
+            encrypted: file.encrypted(),
+        });
+    }
+    Ok(entries)
+}
+
+fn read_zip_entry(
+    zip: &mut ZipArchive<BufReader<File>>,
+    path: &Path,
+    entry: usize,
+    index: usize,
+    limit: u64,
+) -> CoreResult<Vec<u8>> {
+    let file = zip
+        .by_index(entry)
+        .map_err(|e| CoreError::archive(path, &e))?;
+    if file.size() > limit {
+        return Err(CoreError::PageTooLarge { index, limit });
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(file.size()).unwrap_or_default());
+    file.take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| CoreError::Archive {
+            path: path.to_path_buf(),
+            reason: format!("página {index} dañada: {e}"),
+        })?;
+    Ok(bytes)
+}
+
+/// Rechaza rutas que salen de la raíz (`..`). No se extrae nada a disco, pero
+/// así todos los formatos se comportan igual.
+fn is_safe_name(name: &str) -> bool {
+    !name.split(['/', '\\']).any(|part| part == "..")
 }
 
 /// Lee una entrada por nombre, con un límite de tamaño descomprimido.
