@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "nebula-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "image",
  "proptest",
@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "nebula-reader"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nebula-core",
  "serde",

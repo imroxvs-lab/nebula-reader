@@ -82,7 +82,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] RAM en lectura medida y anotada
 - [x] Tag `v0.2.0`
 
-## Fase 3 — EPUB (v0.3.0)
+## Fase 3 — EPUB (v0.3.0) ✅
 
 ### Tareas
 - [x] 3.1 Parser EPUB (container.xml → OPF → spine, TOC nav/NCX, metadatos, portada) con normalización segura de rutas + tests
@@ -95,7 +95,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] Checks automáticos en verde
 - [x] EPUB 2 y EPUB 3 correctos; EPUB malformado da un error amigable
 - [x] `<script>` dentro de un EPUB no se ejecuta
-- [ ] Tag `v0.3.0`
+- [x] Tag `v0.3.0`
 
 ## Fase 4 — PDF (v0.4.0)
 
@@ -158,7 +158,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.1.0 (scaffold 1.1, preliminar) | 152 MB *commit* (métrica antigua) | — | ~250–380 ms | 1,12 MiB |
 | v0.1.0 (fase 1 completa) | **82 MB** privateWS vacía / **86 MB** con 21 elementos (*commit* 170 / 252 MB) | — | ~85–130 ms hasta ventana visible | 1,80 MiB |
 | v0.2.0 (fase 2 completa) | **94 MB** privateWS con 23 elementos (*commit* 280 MB) | **110–115 MB** leyendo un CBZ de 220 páginas de 1600×2400 (1,3 MB/página); estable tras pasar 45 páginas y volver | ~100–120 ms | 2,06 MiB |
-| v0.3.0 (fase 3, pendiente de aprobación) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
+| v0.3.0 (fase 3 completa) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -230,3 +230,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - Las fuentes con tamaño fijo en `px` dentro del CSS del libro no cambian con el ajuste de tamaño.
     - No hay búsqueda de texto dentro del libro ni subrayados (candidatos para la fase 6, junto con los marcadores).
     - EPUB con DRM o de diseño fijo (*fixed layout*) no están soportados.
+- Fase 3 aprobada por el usuario; versión 0.3.0 y tag `v0.3.0` publicados.
