@@ -20,6 +20,7 @@ export const api = {
   continueReading: (limit: number) => invoke<Book[]>("library_continue_reading", { limit }),
   openBook: (id: BookId) => invoke<OpenedBook>("book_open", { id }),
   closeBook: (id: BookId) => invoke<void>("book_close", { id }),
+  setBookOptions: (id: BookId, options: string) => invoke<void>("book_options_set", { id, options }),
   saveProgress: (id: BookId, locator: Locator, percent: number) =>
     invoke<void>("progress_save", { id, locator, percent }),
   getSetting: (key: string) => invoke<string | null>("settings_get", { key }),
@@ -73,7 +74,7 @@ export function epubBase(book: Book): string {
   return `${MEDIA_BASE}/epub/${book.id}/`;
 }
 
-/** Si el formato ya tiene portada en miniatura. */
+/** Si se puede pedir la portada en miniatura (todos los formatos la tienen). */
 export function hasCover(book: Book): boolean {
-  return (book.format === "cbz" || book.format === "epub" || book.format === "pdf") && book.cover !== "failed";
+  return book.cover !== "failed";
 }

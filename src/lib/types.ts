@@ -58,6 +58,16 @@ export interface OpenedBook {
   pageCount: number;
   progress: ReadingProgress | null;
   content: ReaderContent;
+  /** Opciones de lectura guardadas (JSON), si las hay. */
+  readerOptions: string | null;
+}
+
+export type PageLayout = "single" | "double" | "webtoon";
+export type ReadingDirection = "ltr" | "rtl";
+
+export interface ReaderOptions {
+  layout: PageLayout;
+  direction: ReadingDirection;
 }
 
 export interface LibraryQuery {

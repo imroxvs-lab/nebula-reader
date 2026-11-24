@@ -9,15 +9,8 @@
 
   let menu = $state<{ book: Book; x: number; y: number } | null>(null);
 
-  const UPCOMING: Partial<Record<Book["format"], string>> = {
-    cbr: "Los cómics CBR se podrán leer en una próxima versión.",
-    cb7: "Los cómics CB7 se podrán leer en una próxima versión.",
-  };
-
   function openBook(book: Book) {
-    const upcoming = UPCOMING[book.format];
-    if (upcoming) toasts.show("info", `«${book.title}»`, upcoming);
-    else nav.openReader(book);
+    nav.openReader(book);
   }
 
   function showMenu(book: Book, x: number, y: number) {
