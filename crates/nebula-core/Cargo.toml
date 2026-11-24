@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
+pdfium-render = { version = "0.9.6", default-features = false, features = ["pdfium_latest", "thread_safe", "image_latest"], optional = true }
 quick-xml = "0.42.0"
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -25,3 +26,7 @@ workspace = true
 [dev-dependencies]
 proptest = "1.11.0"
 tempfile = "3.27.0"
+
+[features]
+# Lectura de PDF con PDFium (requiere pdfium.dll en tiempo de ejecución).
+pdf = ["dep:pdfium-render"]

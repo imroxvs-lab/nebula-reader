@@ -83,6 +83,14 @@ pub enum CoreError {
     #[error("dato no válido: {0}")]
     InvalidData(String),
 
+    /// El documento está protegido con contraseña.
+    #[error("{0} está protegido con contraseña")]
+    Protected(PathBuf),
+
+    /// El motor PDF no está disponible o no se pudo cargar.
+    #[error("motor PDF no disponible: {0}")]
+    PdfEngine(String),
+
     /// Fallo de SQLite.
     #[error("error de base de datos: {0}")]
     Db(#[from] rusqlite::Error),

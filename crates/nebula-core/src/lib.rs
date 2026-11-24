@@ -15,6 +15,8 @@ pub mod import;
 pub mod library;
 pub mod metadata;
 pub mod natural;
+#[cfg(feature = "pdf")]
+pub mod pdf;
 mod xml;
 
 pub use archive::{ArchiveLimits, ComicArchive, ImageType, PageData};
