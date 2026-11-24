@@ -42,7 +42,8 @@ pub fn run() -> tauri::Result<()> {
             let db_path = data_dir.join(LIBRARY_FILE);
             tracing::info!(path = %db_path.display(), "abriendo biblioteca");
             let library = Library::open(&db_path)?;
-            app.manage(AppState::new(library, data_dir.join(THUMBS_DIR)));
+            let pdf = load_pdf_engine(app.handle());
+            app.manage(AppState::new(library, data_dir.join(THUMBS_DIR), pdf));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -59,6 +60,28 @@ pub fn run() -> tauri::Result<()> {
             commands::settings_set,
         ])
         .run(tauri::generate_context!())
+}
+
+/// Carga PDFium desde los recursos de la app. Si falta, los PDF se deshabilitan
+/// pero la app funciona con normalidad.
+fn load_pdf_engine(app: &tauri::AppHandle) -> Option<nebula_core::pdf::PdfEngine> {
+    let library = match app.path().resource_dir() {
+        Ok(dir) => dir.join("pdfium").join("pdfium.dll"),
+        Err(error) => {
+            tracing::warn!(%error, "sin carpeta de recursos; PDF deshabilitado");
+            return None;
+        }
+    };
+    match nebula_core::pdf::PdfEngine::load(&library) {
+        Ok(engine) => {
+            tracing::info!(path = %library.display(), "motor PDF cargado");
+            Some(engine)
+        }
+        Err(error) => {
+            tracing::warn!(path = %library.display(), %error, "motor PDF no disponible");
+            None
+        }
+    }
 }
 
 fn init_tracing() {

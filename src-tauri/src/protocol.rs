@@ -7,6 +7,8 @@
 //! - `/page/{id}/{index}`: página de un cómic, tal cual está en el archivo.
 //! - `/epub/{id}/{ruta}`: recurso de un EPUB (capítulos, CSS, imágenes, fuentes).
 //!   Se sirve con una CSP que prohíbe ejecutar scripts.
+//! - `/pdf/{id}/{index}?w={ancho}`: página de un PDF renderizada como JPEG al
+//!   ancho pedido (en píxeles físicos).
 //!
 //! Solo se sirven recursos de libros de la biblioteca, identificados por su id;
 //! nunca rutas arbitrarias del disco.
@@ -43,7 +45,11 @@ enum Route {
     Cover(BookId),
     Page(BookId, usize),
     Epub(BookId, String),
+    Pdf(BookId, u32, u32),
 }
+
+/// Ancho de render por defecto si la URL no lo indica.
+const DEFAULT_PDF_WIDTH: u32 = 1200;
 
 /// Punto de entrada registrado en el `Builder`.
 // La firma la impone `register_asynchronous_uri_scheme_protocol`.
@@ -61,7 +67,8 @@ pub fn handle<R: Runtime>(
         return;
     };
     let state = state.inner().clone();
-    let route = parse_route(request.uri().path());
+    let route = parse_route(request.uri().path(), request.uri().query());
+    let uri = request.uri().to_string();
 
     tauri::async_runtime::spawn(async move {
         let response = match route {
@@ -76,13 +83,37 @@ pub fn handle<R: Runtime>(
                     .blocking(move |state| serve_epub(state, id, &href))
                     .await
             }
+            Some(Route::Pdf(id, index, width)) => {
+                state
+                    .blocking(move |state| serve_pdf(state, id, index, width))
+                    .await
+            }
             None => Err(CommandError::new(ErrorCode::NotFound, "ruta desconocida")),
         };
-        responder.respond(response.unwrap_or_else(|error| error_response(&error)));
+        let response = response.unwrap_or_else(|error| {
+            tracing::debug!(%uri, %error, "recurso no servido");
+            error_response(&error)
+        });
+        tracing::debug!(%uri, status = response.status().as_u16(), "nebula://");
+        responder.respond(response);
     });
 }
 
-fn parse_route(path: &str) -> Option<Route> {
+fn parse_route(path: &str, query: Option<&str>) -> Option<Route> {
+    if let Some(rest) = path.trim_start_matches('/').strip_prefix("pdf/") {
+        let (id, index) = rest.trim_end_matches('/').split_once('/')?;
+        let width = query
+            .into_iter()
+            .flat_map(|q| q.split('&'))
+            .find_map(|pair| pair.strip_prefix("w="))
+            .and_then(|w| w.parse().ok())
+            .unwrap_or(DEFAULT_PDF_WIDTH);
+        return Some(Route::Pdf(
+            BookId::new(id.parse().ok()?),
+            index.parse().ok()?,
+            width,
+        ));
+    }
     if let Some(rest) = path.trim_start_matches('/').strip_prefix("epub/") {
         let (id, href) = rest.split_once('/')?;
         let href = epub_path::normalize(&epub_path::percent_decode(href)?)?;
@@ -109,6 +140,15 @@ fn serve_page(state: &AppState, id: BookId, index: usize) -> CommandResult<HttpR
     };
     let page = comic.read_page(index)?;
     Ok(image(page.image_type, page.bytes))
+}
+
+fn serve_pdf(state: &AppState, id: BookId, index: u32, width: u32) -> CommandResult<HttpResponse> {
+    let book = state.library_blocking(|lib| lib.get(id))?;
+    if book.format != BookFormat::Pdf {
+        return Err(CommandError::new(ErrorCode::NotFound, "no es un PDF"));
+    }
+    let page = state.pdf()?.render(&book.path, index, width)?;
+    Ok(image(ImageType::Jpeg, page.jpeg))
 }
 
 fn serve_epub(state: &AppState, id: BookId, href: &str) -> CommandResult<HttpResponse> {
@@ -195,7 +235,8 @@ fn generate_cover(state: &AppState, id: BookId, path: &std::path::Path) -> Comma
             write_comic_cover(&mut archive, path).map(|()| pages)
         }),
         BookFormat::Epub => epub_cover(state, id, &book.path, path),
-        BookFormat::Cbr | BookFormat::Cb7 | BookFormat::Pdf => {
+        BookFormat::Pdf => pdf_cover(state, id, &book.path, path),
+        BookFormat::Cbr | BookFormat::Cb7 => {
             return Err(CommandError::new(ErrorCode::NotFound, "sin portada"));
         }
     };
@@ -212,12 +253,38 @@ fn generate_cover(state: &AppState, id: BookId, path: &std::path::Path) -> Comma
             tracing::warn!(%id, error = %error, "no se pudo generar la portada");
             // Un archivo inexistente puede reaparecer (p. ej. disco externo), así
             // que solo se descarta definitivamente si el contenido no es válido.
-            if !matches!(error, nebula_core::CoreError::Io { .. }) {
+            // Tampoco si falta el motor PDF: no es culpa del archivo.
+            if !matches!(
+                error,
+                nebula_core::CoreError::Io { .. } | nebula_core::CoreError::PdfEngine(_)
+            ) {
                 state.library_blocking(|lib| lib.set_cover_status(id, CoverStatus::Failed))?;
             }
             Err(error.into())
         }
     }
+}
+
+/// Portada de un PDF: la primera página. Completa también título y autor.
+fn pdf_cover(
+    state: &AppState,
+    id: BookId,
+    book_path: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<u32, CoreError> {
+    let engine = state
+        .pdf()
+        .map_err(|_| CoreError::PdfEngine("no disponible".to_owned()))?;
+    let info = engine.info(book_path)?;
+    if let Ok(metadata) = engine.metadata(book_path)
+        && !metadata.is_empty()
+        && let Err(error) = state.library_blocking(|lib| lib.update_metadata(id, &metadata))
+    {
+        tracing::warn!(%id, %error, "no se pudieron guardar los metadatos");
+    }
+    let page = engine.render(book_path, 0, nebula_core::cover::COVER_WIDTH)?;
+    write_cover(&page.jpeg, destination)?;
+    Ok(info.page_count)
 }
 
 /// Portada de un EPUB. De paso, completa los metadatos de libros importados
@@ -292,7 +359,7 @@ mod tests {
     #[test]
     fn parses_cover_route() {
         assert_eq!(
-            parse_route("/cover/12"),
+            parse_route("/cover/12", None),
             Some(Route::Cover(BookId::new(12)))
         );
     }
@@ -300,30 +367,30 @@ mod tests {
     #[test]
     fn parses_page_route() {
         assert_eq!(
-            parse_route("/page/3/41"),
+            parse_route("/page/3/41", None),
             Some(Route::Page(BookId::new(3), 41))
         );
     }
 
     #[test]
     fn rejects_extra_segments() {
-        assert_eq!(parse_route("/page/3/41/x"), None);
+        assert_eq!(parse_route("/page/3/41/x", None), None);
     }
 
     #[test]
     fn rejects_non_numeric_ids() {
-        assert_eq!(parse_route("/cover/../../etc"), None);
+        assert_eq!(parse_route("/cover/../../etc", None), None);
     }
 
     #[test]
     fn rejects_negative_page() {
-        assert_eq!(parse_route("/page/3/-1"), None);
+        assert_eq!(parse_route("/page/3/-1", None), None);
     }
 
     #[test]
     fn parses_epub_route_with_encoded_path() {
         assert_eq!(
-            parse_route("/epub/7/OEBPS/Text/cap%201.xhtml"),
+            parse_route("/epub/7/OEBPS/Text/cap%201.xhtml", None),
             Some(Route::Epub(
                 BookId::new(7),
                 "OEBPS/Text/cap 1.xhtml".to_owned()
@@ -333,11 +400,27 @@ mod tests {
 
     #[test]
     fn epub_route_rejects_traversal() {
-        assert_eq!(parse_route("/epub/7/../../secreto"), None);
+        assert_eq!(parse_route("/epub/7/../../secreto", None), None);
+    }
+
+    #[test]
+    fn parses_pdf_route_with_width() {
+        assert_eq!(
+            parse_route("/pdf/4/12", Some("v=9&w=1600")),
+            Some(Route::Pdf(BookId::new(4), 12, 1600))
+        );
+    }
+
+    #[test]
+    fn pdf_route_has_default_width() {
+        assert_eq!(
+            parse_route("/pdf/4/0", None),
+            Some(Route::Pdf(BookId::new(4), 0, DEFAULT_PDF_WIDTH))
+        );
     }
 
     #[test]
     fn rejects_unknown_resource() {
-        assert_eq!(parse_route("/file/C:/Windows/win.ini"), None);
+        assert_eq!(parse_route("/file/C:/Windows/win.ini", None), None);
     }
 }

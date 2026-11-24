@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use nebula_core::cover::cover_path;
 use nebula_core::{
-    Book, BookId, ImportReport, LibraryQuery, LibraryStats, Locator, OpenDocument, ReadingProgress,
-    SpineItem, Timestamp, TocEntry, metadata, scan_paths,
+    Book, BookFormat, BookId, ImportReport, LibraryQuery, LibraryStats, Locator, OpenDocument,
+    ReadingProgress, SpineItem, Timestamp, TocEntry, metadata, scan_paths,
 };
 use serde::Serialize;
 use tauri::State;
@@ -43,7 +43,11 @@ pub struct OpenedBook {
 
 /// Estructura del documento que necesita cada lector.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum ReaderContent {
     /// Cómic: basta con el número de páginas.
     Comic,
@@ -53,6 +57,11 @@ pub enum ReaderContent {
         spine: Vec<SpineItem>,
         /// Índice.
         toc: Vec<TocEntry>,
+    },
+    /// PDF: se renderiza página a página bajo demanda.
+    Pdf {
+        /// Proporción alto/ancho de la primera página (para reservar espacio).
+        aspect_ratio: f64,
     },
 }
 
@@ -141,8 +150,25 @@ pub async fn library_continue_reading(
 pub async fn book_open(state: State<'_, AppState>, id: BookId) -> CommandResult<OpenedBook> {
     state
         .blocking(move |state| {
-            let (book, document) = state.document(id)?;
-            let (units, content, fresh_metadata) = {
+            let book = state.library_blocking(|lib| lib.get(id))?;
+            let (units, content, fresh_metadata) = if book.format == BookFormat::Pdf {
+                // Los PDF no se mantienen abiertos: cada página se renderiza aparte.
+                let engine = state.pdf()?;
+                let info = engine.info(&book.path)?;
+                let fresh = if book.author.is_none() {
+                    engine.metadata(&book.path).ok().filter(|m| !m.is_empty())
+                } else {
+                    None
+                };
+                (
+                    info.page_count as usize,
+                    ReaderContent::Pdf {
+                        aspect_ratio: info.aspect_ratio,
+                    },
+                    fresh,
+                )
+            } else {
+                let (_, document) = state.document(id)?;
                 let document = document
                     .lock()
                     .map_err(|_| CommandError::internal("documento en estado inválido"))?;
@@ -265,6 +291,12 @@ fn validate_setting_key(key: &str) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reader_content_fields_are_camel_case() {
+        let json = serde_json::to_string(&ReaderContent::Pdf { aspect_ratio: 1.5 }).ok();
+        assert_eq!(json.as_deref(), Some(r#"{"type":"pdf","aspectRatio":1.5}"#));
+    }
 
     #[test]
     fn known_setting_key_is_accepted() {

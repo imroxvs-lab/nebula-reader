@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use nebula_core::pdf::PdfEngine;
 use nebula_core::{Book, BookFormat, BookId, CoreResult, Library, OpenDocument};
 use tokio::sync::Semaphore;
 
@@ -26,17 +27,29 @@ pub struct AppState {
     documents: Arc<DocumentCache>,
     thumbs_dir: Arc<PathBuf>,
     cover_permits: Arc<Semaphore>,
+    /// Motor PDF; `None` si `pdfium.dll` no está disponible.
+    pdf: Option<Arc<PdfEngine>>,
 }
 
 impl AppState {
     /// Crea el estado con una biblioteca abierta y la carpeta de miniaturas.
-    pub fn new(library: Library, thumbs_dir: PathBuf) -> Self {
+    pub fn new(library: Library, thumbs_dir: PathBuf, pdf: Option<PdfEngine>) -> Self {
         Self {
             library: Arc::new(Mutex::new(library)),
             documents: Arc::new(DocumentCache::new(OPEN_DOCUMENTS)),
             thumbs_dir: Arc::new(thumbs_dir),
             cover_permits: Arc::new(Semaphore::new(PARALLEL_COVERS)),
+            pdf: pdf.map(Arc::new),
         }
+    }
+
+    /// Motor PDF, o un error comprensible si no está disponible.
+    pub fn pdf(&self) -> CommandResult<&PdfEngine> {
+        self.pdf.as_deref().ok_or_else(|| {
+            CommandError::unsupported(
+                "No se encontró el motor de PDF (pdfium.dll). Reinstala Nebula Reader para leer PDF.",
+            )
+        })
     }
 
     /// Carpeta de la caché de miniaturas.
@@ -102,12 +115,9 @@ impl AppState {
 /// Comprueba que el formato ya tiene lector.
 pub fn ensure_readable(book: &Book) -> CommandResult<()> {
     match book.format {
-        BookFormat::Cbz | BookFormat::Epub => Ok(()),
+        BookFormat::Cbz | BookFormat::Epub | BookFormat::Pdf => Ok(()),
         BookFormat::Cbr | BookFormat::Cb7 => Err(CommandError::unsupported(
             "Los cómics CBR y CB7 todavía no se pueden abrir; llegarán en una próxima versión.",
-        )),
-        BookFormat::Pdf => Err(CommandError::unsupported(
-            "Los PDF todavía no se pueden abrir; llegarán en una próxima versión.",
         )),
     }
 }

@@ -69,6 +69,8 @@ impl From<CoreError> for CommandError {
             | CoreError::PageOutOfRange { .. }
             | CoreError::NotFoundInArchive(_) => ErrorCode::NotFound,
             CoreError::InvalidData(_) => ErrorCode::InvalidInput,
+            CoreError::Protected(_) => ErrorCode::InvalidFile,
+            CoreError::PdfEngine(_) => ErrorCode::Unsupported,
             CoreError::Archive { .. }
             | CoreError::NoPages(_)
             | CoreError::PageTooLarge { .. }
@@ -98,6 +100,9 @@ fn user_message(error: &CoreError) -> String {
     match error {
         CoreError::Archive { .. } => {
             "El archivo está dañado o no tiene un formato válido.".to_owned()
+        }
+        CoreError::Protected(_) => {
+            "El documento está protegido con contraseña y no se puede abrir.".to_owned()
         }
         CoreError::NoPages(_) => "El archivo no contiene ninguna página de imagen.".to_owned(),
         CoreError::PageTooLarge { .. } => {
