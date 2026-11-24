@@ -34,6 +34,7 @@ cargo run -p nebula-core --example import -- "$env:LOCALAPPDATA\com.nebulareader
 
 # Generar un cómic de prueba (220 páginas de 1600×2400, numeradas)
 cargo run --release -p nebula-core --example make_comic -- C:\ruta\prueba.cbz 220 1600 2400
+# … también .cb7 o una carpeta; el último argumento marca páginas apaisadas (p. ej. 9,16)
 
 # Generar EPUB de prueba (EPUB 3 con contenido hostil y EPUB 2)
 cargo run -p nebula-core --example make_epub -- C:\ruta\epub
@@ -61,6 +62,9 @@ npm run build
 
 ## Licencias de terceros
 - PDFium (`pdfium.dll`): BSD-3-Clause / Apache-2.0, binarios de [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries). Se instala junto con su licencia en `pdfium\LICENSE`.
+
+- UnRAR (lectura de CBR): licencia de RARLAB. Permite usar el código para leer archivos RAR, pero no para crear un compresor compatible con RAR.
+- sevenz-rust2 (lectura de CB7): Apache-2.0.
 
 ## Licencia
 [MIT](LICENSE) © 2026 Roxvs

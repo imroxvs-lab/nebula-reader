@@ -112,14 +112,14 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Fase 5 — CBR, CB7 y modos de cómic avanzados (v0.5.0)
 
 ### Tareas
-- [ ] 5.1 Backends `unrar` y `sevenz-rust2` en `ArchiveBackend`, índice al abrir y caché de páginas
-- [ ] 5.2 Doble página
-- [ ] 5.3 Lectura RTL (manga)
-- [ ] 5.4 Scroll vertical continuo (webtoon) y opciones por libro
+- [x] 5.1 Backends `unrar` y `sevenz-rust2` en `ArchiveBackend`, índice al abrir y caché de páginas
+- [x] 5.2 Doble página
+- [x] 5.3 Lectura RTL (manga)
+- [x] 5.4 Scroll vertical continuo (webtoon) y opciones por libro
 
 ### Validación
-- [ ] Checks automáticos en verde
-- [ ] CBR/CB7 reales; archivos protegidos o corruptos dan un error amigable
+- [x] Checks automáticos en verde
+- [x] CBR/CB7 reales; archivos protegidos o corruptos dan un error amigable
 - [ ] Tag `v0.5.0`
 
 ## Fase 6 — Organización y ajustes (v0.6.0)
@@ -160,6 +160,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.2.0 (fase 2 completa) | **94 MB** privateWS con 23 elementos (*commit* 280 MB) | **110–115 MB** leyendo un CBZ de 220 páginas de 1600×2400 (1,3 MB/página); estable tras pasar 45 páginas y volver | ~100–120 ms | 2,06 MiB |
 | v0.3.0 (fase 3 completa) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
 | v0.4.0 (fase 4 completa) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
+| v0.5.0 (fase 5, pendiente de aprobación) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -248,3 +249,24 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - PDF con contraseña: solo se avisa; no se pide la contraseña.
     - No hay índice (marcadores del PDF), selección ni búsqueda de texto: candidatos para la fase 6.
 - Fase 4 aprobada por el usuario; versión 0.4.0 y tag `v0.4.0` publicados.
+- Fase 5 (5.1–5.4):
+  - **Backends**: `ComicArchive` con `ArchiveBackend { Zip, Rar, SevenZ }`. **El formato se detecta por la firma del archivo**, no por la extensión (muchos `.cbr` son ZIP y viceversa). RAR con `unrar` 0.5.8 (biblioteca oficial UnRAR en C++, compilada con `cc`); 7z con `sevenz-rust2` 0.25 (solo descompresión: LZMA/LZMA2, BZip2, PPMd y Deflate). **El MSRV sube a 1.93** por `sevenz-rust2`.
+  - **Lectura secuencial**: RAR solo se lee en orden (y en archivos sólidos hay que descomprimir lo anterior). Al pedir una página se leen también las 3 siguientes en la misma pasada y se guardan en una caché de 8 páginas por documento. Igual con los 7z sólidos; los 7z normales leen cada entrada directamente.
+  - **Cifrado**: RAR con datos o cabeceras cifradas y 7z con contraseña dan `CoreError::Protected` («protegido con contraseña»).
+  - **`ComicInfo.xml`** se lee ahora también en CBR y CB7.
+  - **Enlazado**: `unrar_sys` usa funciones del registro de Windows sin declarar `advapi32`. Un `build.rs` en `nebula-core` la enlaza (no se puede usar un bloque `extern`: el núcleo prohíbe `unsafe`).
+  - **Fixtures de RAR** (`crates/nebula-core/tests/fixtures/*.cbr`, menos de 1 KB cada uno): creados con WinRAR porque no hay forma libre de crear RAR (normal, sólido, datos cifrados y cabeceras cifradas). WinRAR ya no crea RAR4, así que ese formato no tiene fixture. Los 7z se generan en el test con el escritor de `sevenz-rust2` (dependencia de desarrollo).
+  - **Migración 4**: `books.reader_options` (JSON con `layout` y `direction` por libro), comando `book_options_set` (JSON válido, máximo 2 KB) y validación en la interfaz.
+  - **Lector** (`ComicReader`, también para PDF):
+    - modos página, doble página y vertical (webtoon);
+    - **doble página**: la portada va sola, las páginas apaisadas (dobles escaneadas) también, y el resto de dos en dos; los pliegos se recalculan al conocer las dimensiones de cada página, que se obtienen ya en la precarga;
+    - **manga (derecha a izquierda)**: invierte el orden de los pliegos, las flechas, las zonas de clic y la barra de páginas;
+    - **webtoon**: columna de hasta 900 px por el zoom; solo se montan las imágenes cercanas (±3 páginas) y el resto son huecos de altura estimada; se compensa el desplazamiento cuando cambia la altura de una página por encima de la vista.
+  - **Portadas**: se generan para todos los formatos (antes la interfaz no las pedía para CBR y CB7).
+  - **Herramienta**: `make_comic` admite salida `.cb7` o carpeta (para empaquetar con WinRAR) y páginas apaisadas.
+  - **Verificación**: recorrido en release con un CBR sólido de 24 páginas (doble página, páginas apaisadas, manga), un CB7 de 30, un webtoon de 40 y un CBR real de 83 páginas (38 MB) que ya estaba en la biblioteca; opciones y progreso persistidos por libro.
+  - **Pendiente o limitado**:
+    - no se lee `Manga=YesAndRightToLeft` de `ComicInfo.xml` para activar el modo manga automáticamente;
+    - no se piden contraseñas de archivos cifrados;
+    - RAR multivolumen (`.part1.rar`) no probado;
+    - en doble página no hay opción para desplazar los pliegos una página (cuando la portada no es una sola página).
