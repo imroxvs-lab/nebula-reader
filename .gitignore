@@ -16,3 +16,6 @@ vite.config.ts.timestamp-*
 .env.*
 !.env.example
 .DS_Store
+
+# Motor PDFium (se descarga con scripts/fetch-pdfium.ps1)
+/src-tauri/resources/pdfium/
