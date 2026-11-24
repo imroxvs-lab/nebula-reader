@@ -57,6 +57,11 @@ export function pageUrl(book: Book, index: number): string {
   return `${MEDIA_BASE}/page/${book.id}/${index}?v=${book.addedAt}`;
 }
 
+/** Página de un PDF renderizada a `width` píxeles físicos. */
+export function pdfUrl(book: Book, index: number, width: number): string {
+  return `${MEDIA_BASE}/pdf/${book.id}/${index}?w=${width}&v=${book.addedAt}`;
+}
+
 /** URL de un recurso de un EPUB (ruta dentro del archivo, sin codificar). */
 export function epubUrl(book: Book, href: string): string {
   const encoded = href.split("/").map(encodeURIComponent).join("/");
@@ -70,5 +75,5 @@ export function epubBase(book: Book): string {
 
 /** Si el formato ya tiene portada en miniatura. */
 export function hasCover(book: Book): boolean {
-  return (book.format === "cbz" || book.format === "epub") && book.cover !== "failed";
+  return (book.format === "cbz" || book.format === "epub" || book.format === "pdf") && book.cover !== "failed";
 }

@@ -10,7 +10,6 @@
   let menu = $state<{ book: Book; x: number; y: number } | null>(null);
 
   const UPCOMING: Partial<Record<Book["format"], string>> = {
-    pdf: "Los PDF se podrán leer en una próxima versión.",
     cbr: "Los cómics CBR se podrán leer en una próxima versión.",
     cb7: "Los cómics CB7 se podrán leer en una próxima versión.",
   };

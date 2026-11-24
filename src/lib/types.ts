@@ -42,7 +42,10 @@ export interface TocEntry {
   level: number;
 }
 
-export type ReaderContent = { type: "comic" } | { type: "epub"; spine: SpineItem[]; toc: TocEntry[] };
+export type ReaderContent =
+  | { type: "comic" }
+  | { type: "epub"; spine: SpineItem[]; toc: TocEntry[] }
+  | { type: "pdf"; aspectRatio: number };
 
 export interface ReadingProgress {
   locator: Locator;

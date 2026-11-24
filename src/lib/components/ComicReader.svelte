@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { api, errorMessage, pageUrl } from "#lib/api.ts";
+  import { api, errorMessage, pageUrl, pdfUrl } from "#lib/api.ts";
   import { library } from "#lib/stores/library.svelte.ts";
   import { nav } from "#lib/stores/nav.svelte.ts";
   import { toasts } from "#lib/stores/toasts.svelte.ts";
@@ -18,6 +18,10 @@
   /** Desplazamiento extra de rueda en un borde antes de cambiar de página. */
   const WHEEL_PAGE_THRESHOLD = 240;
   const FIT_SETTING = "readerFit";
+  /** Ancho «1:1» de una página PDF: A4 (595 pt) a 96 ppp. */
+  const PDF_BASE_WIDTH = 794;
+  /** Escalón de resolución de render de PDF, en píxeles físicos. */
+  const RENDER_STEP = 256;
 
   const fitModes: { value: FitMode; label: string; short: string }[] = [
     { value: "page", label: "Ajustar a la ventana", short: "Ventana" },
@@ -39,9 +43,26 @@
   let viewerHeight = $state(0);
 
   const pageCount = $derived(opened?.pageCount ?? 0);
+  const isPdf = $derived(opened?.content.type === "pdf");
+
+  /**
+   * Tamaño de referencia de la página. En cómics es el de la imagen. En PDF la
+   * imagen se renderiza al tamaño pedido, así que se usa un ancho fijo (A4 a
+   * 96 ppp, que equivale al «1:1») y la proporción real de la página, o la de
+   * la primera página mientras se carga.
+   */
+  const reference = $derived.by(() => {
+    if (natural) return natural;
+    if (opened?.content.type === "pdf") {
+      const ratio = opened.content.aspectRatio;
+      return { width: PDF_BASE_WIDTH, height: PDF_BASE_WIDTH * (Number.isFinite(ratio) && ratio > 0 ? ratio : Math.SQRT2) };
+    }
+    return null;
+  });
 
   /** Tamaño en pantalla de la página según el ajuste y el zoom. */
   const pageSize = $derived.by(() => {
+    const natural = reference;
     if (!natural || viewerWidth === 0 || viewerHeight === 0) return null;
     const byWidth = viewerWidth / natural.width;
     const byHeight = viewerHeight / natural.height;
@@ -52,7 +73,25 @@
       height: Math.round(natural.height * scale),
     };
   });
-  const currentUrl = $derived(opened ? pageUrl(opened.book, index) : "");
+  /**
+   * Ancho de render de un PDF: el tamaño en pantalla por la densidad de píxeles,
+   * en escalones para no volver a renderizar por cambios pequeños.
+   */
+  const renderWidth = $derived(
+    pageSize
+      ? Math.max(
+          RENDER_STEP,
+          Math.ceil((pageSize.width * window.devicePixelRatio) / RENDER_STEP) * RENDER_STEP,
+        )
+      : 0,
+  );
+
+  function urlFor(target: number): string {
+    if (!opened) return "";
+    return isPdf ? pdfUrl(opened.book, target, renderWidth) : pageUrl(opened.book, target);
+  }
+
+  const currentUrl = $derived(opened && (!isPdf || renderWidth > 0) ? urlFor(index) : "");
   const appWindow = getCurrentWindow();
 
   // Abrir el libro y restaurar la posición.
@@ -121,7 +160,7 @@
       if (i === index || i < 0 || i >= pageCount) continue;
       const image = new Image();
       image.decoding = "async";
-      image.src = pageUrl(current, i);
+      image.src = isPdf ? pdfUrl(current, i, renderWidth) : pageUrl(current, i);
       images.push(image);
     }
     preloaded = images;
@@ -131,11 +170,17 @@
     };
   });
 
-  // Indicador de carga por página.
+  // Indicador de carga cada vez que cambia la imagen (página, o resolución en PDF).
   $effect(() => {
     void currentUrl;
     loading = true;
     pageError = false;
+  });
+
+  // Las dimensiones de referencia se reinician solo al cambiar de página: en
+  // PDF una nueva resolución de la misma página no cambia su proporción.
+  $effect(() => {
+    void index;
     natural = null;
   });
 
@@ -264,7 +309,7 @@
   class:chrome-hidden={!chromeVisible}
   onmousemove={showChrome}
   role="application"
-  aria-label="Lector de cómics"
+  aria-label={isPdf ? "Lector de PDF" : "Lector de cómics"}
 >
   <div
     class="toolbar"
@@ -343,7 +388,9 @@
         style:height={pageSize ? `${pageSize.height}px` : null}
         onload={(e) => {
           const image = e.currentTarget as HTMLImageElement;
-          natural = { width: image.naturalWidth, height: image.naturalHeight };
+          natural = isPdf
+            ? { width: PDF_BASE_WIDTH, height: (PDF_BASE_WIDTH * image.naturalHeight) / image.naturalWidth }
+            : { width: image.naturalWidth, height: image.naturalHeight };
           loading = false;
         }}
         onerror={() => {
