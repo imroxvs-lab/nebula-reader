@@ -22,13 +22,15 @@ mod xml;
 pub use archive::{ArchiveLimits, ComicArchive, ImageType, PageData};
 pub use document::OpenDocument;
 pub use domain::{
-    Book, BookFormat, BookId, BookKind, CoverStatus, ImportFailure, ImportReport, LibraryQuery,
-    LibraryStats, Locator, NewBook, ReadingProgress, SortBy, Timestamp, title_from_path,
+    Book, BookFormat, BookId, BookKind, Bookmark, BookmarkId, Collection, CollectionId,
+    CoverStatus, FacetValue, ImportFailure, ImportReport, LibraryFacets, LibraryQuery,
+    LibraryStats, Locator, NewBook, ReadStatus, ReadingProgress, RescanReport, SortBy, Timestamp,
+    title_from_path,
 };
 pub use epub::{EpubBook, EpubMetadata, SpineItem, TocEntry};
 pub use error::{CoreError, CoreResult};
 pub use import::{ScanOutcome, scan_paths};
-pub use library::{InsertOutcome, Library};
+pub use library::{InsertOutcome, KnownFile, Library, RescanPlan, plan_rescan};
 pub use metadata::BookMetadata;
 
 /// Versión del núcleo, expuesta para diagnósticos en la interfaz.

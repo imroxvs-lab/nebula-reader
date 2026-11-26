@@ -79,6 +79,10 @@ pub enum CoreError {
     #[error("imagen no válida: {0}")]
     Image(String),
 
+    /// Ya existe un elemento con ese nombre o ruta.
+    #[error("{0}")]
+    AlreadyExists(String),
+
     /// Un dato no se pudo serializar o interpretar.
     #[error("dato no válido: {0}")]
     InvalidData(String),

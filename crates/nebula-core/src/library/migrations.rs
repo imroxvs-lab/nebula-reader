@@ -65,6 +65,40 @@ const MIGRATIONS: &[&str] = &[
     r"
     ALTER TABLE books ADD COLUMN reader_options TEXT;
     ",
+    // 5: organización. Estado de lectura, archivos desaparecidos, marcadores y
+    // colecciones. Los libros ya terminados (progreso al 100 %) se marcan como tales.
+    r"
+    ALTER TABLE books ADD COLUMN finished_at INTEGER;
+    ALTER TABLE books ADD COLUMN missing INTEGER NOT NULL DEFAULT 0 CHECK (missing IN (0, 1));
+    UPDATE books SET finished_at = (
+        SELECT p.updated_at FROM progress p WHERE p.book_id = books.id AND p.percent >= 0.999
+    );
+    CREATE INDEX books_author_idx ON books (author COLLATE NOCASE);
+
+    CREATE TABLE bookmarks (
+        id         INTEGER PRIMARY KEY,
+        book_id    INTEGER NOT NULL REFERENCES books (id) ON DELETE CASCADE,
+        locator    TEXT    NOT NULL,
+        percent    REAL    NOT NULL CHECK (percent >= 0.0 AND percent <= 1.0),
+        label      TEXT    NOT NULL,
+        created_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX bookmarks_book_idx ON bookmarks (book_id, percent);
+
+    CREATE TABLE collections (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT    NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),
+        created_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE collection_books (
+        collection_id INTEGER NOT NULL REFERENCES collections (id) ON DELETE CASCADE,
+        book_id       INTEGER NOT NULL REFERENCES books (id) ON DELETE CASCADE,
+        added_at      INTEGER NOT NULL,
+        PRIMARY KEY (collection_id, book_id)
+    ) STRICT, WITHOUT ROWID;
+    CREATE INDEX collection_books_book_idx ON collection_books (book_id);
+    ",
 ];
 
 /// Versión de esquema más reciente que conoce esta compilación.

@@ -179,6 +179,149 @@ pub struct Book {
     pub series: Option<String>,
     /// Número dentro de la serie.
     pub series_index: Option<f64>,
+    /// Estado de lectura.
+    pub status: ReadStatus,
+    /// El archivo no estaba en su ruta en la última comprobación.
+    pub missing: bool,
+}
+
+/// Estado de lectura de un libro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReadStatus {
+    /// Nunca abierto (sin progreso).
+    #[default]
+    Unread,
+    /// Empezado.
+    Reading,
+    /// Terminado (llegó al final o se marcó a mano).
+    Finished,
+}
+
+impl ReadStatus {
+    /// Representación usada en SQL.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unread => "unread",
+            Self::Reading => "reading",
+            Self::Finished => "finished",
+        }
+    }
+
+    /// Interpreta la representación de SQL; lo desconocido cuenta como no leído.
+    pub fn from_db(value: &str) -> Self {
+        match value {
+            "reading" => Self::Reading,
+            "finished" => Self::Finished,
+            _ => Self::Unread,
+        }
+    }
+}
+
+/// Identificador de una colección.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CollectionId(i64);
+
+impl CollectionId {
+    /// Envuelve un identificador de la base de datos.
+    pub const fn new(id: i64) -> Self {
+        Self(id)
+    }
+
+    /// Valor numérico subyacente.
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+impl fmt::Display for CollectionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Colección (estantería) creada por el usuario.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Collection {
+    /// Identificador.
+    pub id: CollectionId,
+    /// Nombre (único, sin distinguir mayúsculas).
+    pub name: String,
+    /// Número de libros.
+    pub count: u64,
+}
+
+/// Identificador de un marcador.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BookmarkId(i64);
+
+impl BookmarkId {
+    /// Envuelve un identificador de la base de datos.
+    pub const fn new(id: i64) -> Self {
+        Self(id)
+    }
+
+    /// Valor numérico subyacente.
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
+/// Marcador dentro de un libro.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Bookmark {
+    /// Identificador.
+    pub id: BookmarkId,
+    /// Posición marcada.
+    pub locator: Locator,
+    /// Fracción del libro (para ordenar y mostrar).
+    pub percent: f64,
+    /// Texto descriptivo («Página 12», título del capítulo…).
+    pub label: String,
+    /// Cuándo se creó.
+    pub created_at: Timestamp,
+}
+
+/// Valor distinto de un campo con su número de libros (para filtros).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FacetValue {
+    /// Valor (autor o serie).
+    pub value: String,
+    /// Libros con ese valor.
+    pub count: u64,
+}
+
+/// Valores disponibles para filtrar la biblioteca.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryFacets {
+    /// Autores.
+    pub authors: Vec<FacetValue>,
+    /// Series.
+    pub series: Vec<FacetValue>,
+}
+
+/// Resultado de volver a comprobar la biblioteca y sus carpetas.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RescanReport {
+    /// Libros comprobados.
+    pub checked: usize,
+    /// Libros cuyo archivo ha desaparecido.
+    pub missing: usize,
+    /// Libros que vuelven a estar disponibles.
+    pub restored: usize,
+    /// Libros encontrados en otra ruta (mismo nombre y tamaño); conservan su progreso.
+    pub relocated: usize,
+    /// Libros nuevos encontrados en las carpetas de la biblioteca.
+    pub added: usize,
+    /// Errores de lectura de las carpetas.
+    pub failures: Vec<ImportFailure>,
 }
 
 /// Estado de la miniatura de portada de un libro.
@@ -362,6 +505,10 @@ pub enum SortBy {
     AddedAt,
     /// Abiertos más recientemente primero; los nunca abiertos al final.
     LastOpened,
+    /// Por autor y luego título; sin autor al final.
+    Author,
+    /// Por serie y número; sin serie al final.
+    Series,
 }
 
 /// Filtros y orden para listar la biblioteca.
@@ -376,6 +523,14 @@ pub struct LibraryQuery {
     pub sort: SortBy,
     /// Número máximo de resultados; `None` = todos.
     pub limit: Option<u32>,
+    /// Restringe a un estado de lectura.
+    pub status: Option<ReadStatus>,
+    /// Restringe a un autor (coincidencia exacta, sin distinguir mayúsculas).
+    pub author: Option<String>,
+    /// Restringe a una serie (coincidencia exacta, sin distinguir mayúsculas).
+    pub series: Option<String>,
+    /// Restringe a una colección.
+    pub collection: Option<CollectionId>,
 }
 
 /// Recuento de la biblioteca por categoría.
@@ -561,6 +716,10 @@ mod tests {
                 kind: Some(BookKind::Comic),
                 sort: SortBy::LastOpened,
                 limit: None,
+                status: None,
+                author: None,
+                series: None,
+                collection: None,
             }
         );
     }

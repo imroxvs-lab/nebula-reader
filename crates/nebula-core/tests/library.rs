@@ -129,3 +129,50 @@ fn version_1_database_is_migrated_without_data_loss() {
         Some("dark")
     );
 }
+
+#[test]
+fn version_4_database_is_migrated_and_finished_books_are_detected() {
+    let dir = tempfile::tempdir().expect("directorio temporal");
+    let db = dir.path().join("library.db");
+    {
+        // Se crea con la versión actual y se baja la versión a 4 deshaciendo la
+        // migración 5, para simular una biblioteca de v0.5.0.
+        let lib = Library::open(&db).expect("crear");
+        let id = match lib
+            .insert(&new_book("C:/fin.cbz"), Timestamp::from_unix_seconds(1))
+            .expect("insertar")
+        {
+            InsertOutcome::Inserted(id) => id,
+            InsertOutcome::Duplicate => panic!("duplicado"),
+        };
+        lib.save_progress(
+            id,
+            nebula_core::Locator::Page { index: 9 },
+            1.0,
+            Timestamp::from_unix_seconds(2),
+        )
+        .expect("progreso");
+    }
+    let conn = rusqlite::Connection::open(&db).expect("abrir");
+    conn.execute_batch(
+        "DROP TABLE collection_books; DROP TABLE collections; DROP TABLE bookmarks;
+         DROP INDEX books_author_idx;
+         ALTER TABLE books DROP COLUMN missing;
+         ALTER TABLE books DROP COLUMN finished_at;
+         PRAGMA user_version = 4;",
+    )
+    .expect("bajar a v4");
+    drop(conn);
+
+    let lib = Library::open(&db).expect("migrar");
+    let books = lib.list(&LibraryQuery::default()).expect("listar");
+    assert_eq!(
+        (
+            books.len(),
+            books[0].status,
+            books[0].progress,
+            lib.collections().expect("colecciones").len()
+        ),
+        (1, nebula_core::ReadStatus::Finished, Some(1.0), 0)
+    );
+}

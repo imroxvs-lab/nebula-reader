@@ -34,6 +34,13 @@ pub struct ScanOutcome {
 /// recorren en orden alfabético sin seguir enlaces simbólicos. Nunca falla en
 /// bloque: cada problema se anota en [`ScanOutcome::failures`].
 pub fn scan_paths<P: AsRef<Path>>(paths: &[P]) -> ScanOutcome {
+    let mut outcome = collect_paths(paths);
+    outcome.books = outcome.books.into_iter().map(enrich).collect();
+    outcome
+}
+
+/// Como [`scan_paths`] pero sin leer metadatos (más rápido: solo recorre el disco).
+pub(crate) fn collect_paths<P: AsRef<Path>>(paths: &[P]) -> ScanOutcome {
     let mut outcome = ScanOutcome::default();
     for path in paths {
         scan_one(path.as_ref(), &mut outcome);
@@ -55,7 +62,7 @@ fn scan_one(path: &Path, outcome: &mut ScanOutcome) {
         scan_dir(&path, outcome);
     } else if metadata.is_file() {
         match NewBook::from_path(path, metadata.len()) {
-            Ok(book) => outcome.books.push(enrich(book)),
+            Ok(book) => outcome.books.push(book),
             Err(_) => outcome.unsupported += 1,
         }
     } else {
@@ -99,7 +106,7 @@ fn scan_dir(dir: &Path, outcome: &mut ScanOutcome) {
         // El formato ya se ha comprobado, así que `from_path` no puede fallar aquí;
         // aun así se trata el error en vez de suponerlo.
         match NewBook::from_path(entry.into_path(), size) {
-            Ok(book) => outcome.books.push(enrich(book)),
+            Ok(book) => outcome.books.push(book),
             Err(_) => outcome.unsupported += 1,
         }
     }
@@ -107,7 +114,7 @@ fn scan_dir(dir: &Path, outcome: &mut ScanOutcome) {
 
 /// Añade los metadatos del archivo. Un archivo ilegible se importa igualmente
 /// (con el título del nombre): al abrirlo, el usuario verá el error concreto.
-fn enrich(book: NewBook) -> NewBook {
+pub(crate) fn enrich(book: NewBook) -> NewBook {
     match read_metadata(&book.path, book.format) {
         Ok(metadata) => book.with_metadata(metadata),
         Err(error) => {

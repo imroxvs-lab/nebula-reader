@@ -3,7 +3,12 @@
 //! [`Library`] envuelve una única [`rusqlite::Connection`]. No es `Sync`: la capa
 //! de aplicación la protege con un `Mutex` y la usa desde hilos bloqueantes.
 
+mod bookmarks;
+mod collections;
 mod migrations;
+mod rescan;
+
+pub use rescan::{KnownFile, RescanPlan, plan_rescan};
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -12,8 +17,8 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use crate::domain::{
-    Book, BookFormat, BookId, BookKind, CoverStatus, LibraryQuery, LibraryStats, Locator, NewBook,
-    ReadingProgress, SortBy, Timestamp,
+    Book, BookFormat, BookId, BookKind, CollectionId, CoverStatus, FacetValue, LibraryFacets,
+    LibraryQuery, LibraryStats, Locator, NewBook, ReadStatus, ReadingProgress, SortBy, Timestamp,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::metadata::BookMetadata;
@@ -26,8 +31,15 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// filtros y órdenes pueden usar nombres sin prefijo.
 const BOOK_SELECT: &str = "SELECT b.id, b.path, b.title, b.format, b.file_size, b.added_at,
         b.last_opened_at, b.page_count, b.cover_status, p.percent,
-        b.author, b.series, b.series_index
+        b.author, b.series, b.series_index,
+        CASE WHEN b.finished_at IS NOT NULL THEN 'finished'
+             WHEN p.percent IS NOT NULL THEN 'reading'
+             ELSE 'unread' END AS status,
+        b.missing
     FROM books b LEFT JOIN progress p ON p.book_id = b.id";
+
+/// Progreso a partir del cual un libro se da por terminado.
+const FINISHED_AT: f64 = 0.999;
 
 /// Resultado de intentar insertar un libro.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +168,7 @@ impl Library {
     /// [`CoreError::Db`] si SQLite falla.
     pub fn list(&self, query: &LibraryQuery) -> CoreResult<Vec<Book>> {
         let pattern = query.search_term().map(like_pattern);
+        // `status` es el alias de la columna calculada en BOOK_SELECT.
         let sql = format!(
             "{BOOK_SELECT}
              WHERE (?1 IS NULL
@@ -163,6 +176,12 @@ impl Library {
                     OR author LIKE ?1 ESCAPE '\\'
                     OR series LIKE ?1 ESCAPE '\\')
                AND {kind}
+               AND (?3 IS NULL OR status = ?3)
+               AND (?4 IS NULL OR author = ?4 COLLATE NOCASE)
+               AND (?5 IS NULL OR series = ?5 COLLATE NOCASE)
+               AND (?6 IS NULL OR EXISTS (
+                    SELECT 1 FROM collection_books cb
+                    WHERE cb.book_id = b.id AND cb.collection_id = ?6))
              ORDER BY {order}
              LIMIT coalesce(?2, -1)", // En SQLite, LIMIT -1 = sin límite.
             kind = kind_clause(query.kind),
@@ -170,7 +189,25 @@ impl Library {
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
         let books = stmt
-            .query_map(params![pattern, query.limit], book_from_row)?
+            .query_map(
+                params![
+                    pattern,
+                    query.limit,
+                    query.status.map(ReadStatus::as_str),
+                    query
+                        .author
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|a| !a.is_empty()),
+                    query
+                        .series
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty()),
+                    query.collection.map(CollectionId::get),
+                ],
+                book_from_row,
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(books)
     }
@@ -242,7 +279,8 @@ impl Library {
     pub fn continue_reading(&self, limit: u32) -> CoreResult<Vec<Book>> {
         let mut stmt = self.conn.prepare_cached(&format!(
             "{BOOK_SELECT}
-             WHERE p.percent IS NOT NULL AND p.percent < 1.0 AND b.last_opened_at IS NOT NULL
+             WHERE p.percent IS NOT NULL AND b.finished_at IS NULL AND b.missing = 0
+               AND b.last_opened_at IS NOT NULL
              ORDER BY b.last_opened_at DESC, b.id DESC
              LIMIT ?1"
         ))?;
@@ -311,6 +349,65 @@ impl Library {
         Ok(())
     }
 
+    /// Cambia el estado de lectura a mano.
+    ///
+    /// - `Finished`: marca el libro como terminado.
+    /// - `Unread`: borra el progreso y la marca de terminado.
+    /// - `Reading`: quita la marca de terminado (conserva el progreso).
+    ///
+    /// # Errors
+    /// - [`CoreError::NotFound`] si no existe.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn set_status(&self, id: BookId, status: ReadStatus, at: Timestamp) -> CoreResult<()> {
+        let tx = self.transaction()?;
+        let finished = (status == ReadStatus::Finished).then_some(at.as_unix_seconds());
+        let updated = self
+            .conn
+            .prepare_cached("UPDATE books SET finished_at = ?2 WHERE id = ?1")?
+            .execute(params![id.get(), finished])?;
+        if updated == 0 {
+            return Err(CoreError::NotFound(id));
+        }
+        if status == ReadStatus::Unread {
+            self.conn
+                .prepare_cached("DELETE FROM progress WHERE book_id = ?1")?
+                .execute([id.get()])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Autores y series distintos, con su número de libros (los más frecuentes
+    /// primero, hasta `limit` de cada).
+    ///
+    /// # Errors
+    /// [`CoreError::Db`] si SQLite falla.
+    pub fn facets(&self, limit: u32) -> CoreResult<LibraryFacets> {
+        let facet = |column: &str| -> CoreResult<Vec<FacetValue>> {
+            let sql = format!(
+                "SELECT {column}, COUNT(*) FROM books
+                 WHERE {column} IS NOT NULL AND trim({column}) <> ''
+                 GROUP BY {column} COLLATE NOCASE
+                 ORDER BY {column} COLLATE NOCASE
+                 LIMIT ?1"
+            );
+            let mut stmt = self.conn.prepare_cached(&sql)?;
+            let values = stmt
+                .query_map([limit], |row| {
+                    Ok(FacetValue {
+                        value: row.get(0)?,
+                        count: u64::try_from(row.get::<_, i64>(1)?).unwrap_or_default(),
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(values)
+        };
+        Ok(LibraryFacets {
+            authors: facet("author")?,
+            series: facet("series")?,
+        })
+    }
+
     /// Guarda el número de páginas de un libro.
     ///
     /// # Errors
@@ -374,7 +471,16 @@ impl Library {
             )?
             .execute(params![id.get(), locator, percent, at.as_unix_seconds()]);
         match result {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                if percent >= FINISHED_AT {
+                    self.conn
+                        .prepare_cached(
+                            "UPDATE books SET finished_at = coalesce(finished_at, ?2) WHERE id = ?1",
+                        )?
+                        .execute(params![id.get(), at.as_unix_seconds()])?;
+                }
+                Ok(())
+            }
             Err(rusqlite::Error::SqliteFailure(e, _))
                 if e.code == rusqlite::ErrorCode::ConstraintViolation =>
             {
@@ -477,6 +583,12 @@ const fn order_clause(sort: SortBy) -> &'static str {
         SortBy::LastOpened => {
             "last_opened_at IS NULL ASC, last_opened_at DESC, added_at DESC, id DESC"
         }
+        SortBy::Author => {
+            "author IS NULL ASC, author COLLATE NOCASE ASC, title COLLATE NOCASE ASC, id ASC"
+        }
+        SortBy::Series => {
+            "series IS NULL ASC, series COLLATE NOCASE ASC, series_index ASC, title COLLATE NOCASE ASC, id ASC"
+        }
     }
 }
 
@@ -500,6 +612,8 @@ fn book_from_row(row: &Row<'_>) -> rusqlite::Result<Book> {
         author: row.get(10)?,
         series: row.get(11)?,
         series_index: row.get(12)?,
+        status: ReadStatus::from_db(&row.get::<_, String>(13)?),
+        missing: row.get(14)?,
     })
 }
 
@@ -579,6 +693,8 @@ mod tests {
                 author: None,
                 series: None,
                 series_index: None,
+                status: ReadStatus::Unread,
+                missing: false,
             })
         );
     }
@@ -717,7 +833,7 @@ mod tests {
             search: Some("saga".to_owned()),
             kind: Some(BookKind::Book),
             sort: SortBy::Title,
-            limit: None,
+            ..LibraryQuery::default()
         };
         assert_eq!(titles(&list(&lib, &query)), ["Saga guía"]);
     }
@@ -940,6 +1056,139 @@ mod tests {
             lib.get(id).ok().map(|b| (b.title, b.author)),
             Some(("Título real".to_owned(), Some("Autora".to_owned())))
         );
+    }
+
+    fn statuses(lib: &Library) -> Vec<(String, ReadStatus)> {
+        list(
+            lib,
+            &LibraryQuery {
+                sort: SortBy::Title,
+                ..LibraryQuery::default()
+            },
+        )
+        .into_iter()
+        .map(|b| (b.title, b.status))
+        .collect()
+    }
+
+    #[test]
+    fn status_is_derived_from_progress_and_end() {
+        let lib = library();
+        insert(&lib, "C:/a.cbz", 1);
+        let reading = insert(&lib, "C:/b.cbz", 2);
+        let done = insert(&lib, "C:/c.cbz", 3);
+        let at = Timestamp::from_unix_seconds(9);
+        assert!(lib.save_progress(reading, page(1), 0.4, at).is_ok());
+        assert!(lib.save_progress(done, page(9), 1.0, at).is_ok());
+        assert_eq!(
+            statuses(&lib),
+            [
+                ("a".to_owned(), ReadStatus::Unread),
+                ("b".to_owned(), ReadStatus::Reading),
+                ("c".to_owned(), ReadStatus::Finished)
+            ]
+        );
+    }
+
+    #[test]
+    fn marking_unread_clears_progress() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        let at = Timestamp::from_unix_seconds(9);
+        assert!(lib.save_progress(id, page(9), 1.0, at).is_ok());
+        assert!(lib.set_status(id, ReadStatus::Unread, at).is_ok());
+        assert_eq!(
+            (
+                lib.get(id).ok().map(|b| b.status),
+                lib.progress(id).ok().flatten()
+            ),
+            (Some(ReadStatus::Unread), None)
+        );
+    }
+
+    #[test]
+    fn marking_finished_hides_from_continue_reading() {
+        let lib = library();
+        let id = insert(&lib, "C:/a.cbz", 1);
+        let at = Timestamp::from_unix_seconds(9);
+        assert!(lib.save_progress(id, page(1), 0.2, at).is_ok());
+        assert!(lib.mark_opened(id, at).is_ok());
+        assert!(lib.set_status(id, ReadStatus::Finished, at).is_ok());
+        assert_eq!(lib.continue_reading(10).map(|b| b.len()).ok(), Some(0));
+    }
+
+    #[test]
+    fn status_filter_selects_matching_books() {
+        let lib = library();
+        insert(&lib, "C:/a.cbz", 1);
+        let done = insert(&lib, "C:/b.cbz", 2);
+        assert!(
+            lib.set_status(done, ReadStatus::Finished, Timestamp::from_unix_seconds(3))
+                .is_ok()
+        );
+        let query = LibraryQuery {
+            status: Some(ReadStatus::Finished),
+            ..LibraryQuery::default()
+        };
+        assert_eq!(titles(&list(&lib, &query)), ["b"]);
+    }
+
+    #[test]
+    fn author_and_series_filters_and_facets() {
+        let lib = library();
+        for (path, author, series) in [
+            ("C:/a.epub", "Tolkien", "Tierra Media"),
+            ("C:/b.epub", "tolkien", "Tierra Media"),
+            ("C:/c.epub", "Le Guin", "Terramar"),
+        ] {
+            assert!(
+                lib.insert(
+                    &with_meta(path, author, series),
+                    Timestamp::from_unix_seconds(1)
+                )
+                .is_ok()
+            );
+        }
+        let by_author = LibraryQuery {
+            author: Some("TOLKIEN".to_owned()),
+            ..LibraryQuery::default()
+        };
+        let facets = lib.facets(100).unwrap_or_default();
+        assert_eq!(
+            (
+                list(&lib, &by_author).len(),
+                facets
+                    .authors
+                    .iter()
+                    .map(|f| (f.value.to_lowercase(), f.count))
+                    .collect::<Vec<_>>(),
+                facets.series.len()
+            ),
+            (
+                2,
+                vec![("le guin".to_owned(), 1), ("tolkien".to_owned(), 2)],
+                2
+            )
+        );
+    }
+
+    #[test]
+    fn series_sort_orders_by_number() {
+        let lib = library();
+        for (path, index) in [("C:/c.cbz", 3.0), ("C:/a.cbz", 1.0), ("C:/b.cbz", 2.0)] {
+            let book = new_book(path).with_metadata(BookMetadata {
+                series: Some("S".to_owned()),
+                series_index: Some(index),
+                ..BookMetadata::default()
+            });
+            assert!(lib.insert(&book, Timestamp::from_unix_seconds(1)).is_ok());
+        }
+        insert(&lib, "C:/sin_serie.cbz", 1);
+        let query = LibraryQuery {
+            sort: SortBy::Series,
+            ..LibraryQuery::default()
+        };
+        assert_eq!(titles(&list(&lib, &query)), ["a", "b", "c", "sin serie"]);
     }
 
     #[test]
