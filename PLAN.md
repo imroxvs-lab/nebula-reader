@@ -136,7 +136,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] Migraciones aplicadas sobre una BD de v0.5.0 sin pérdida de datos
 - [x] Tag `v0.6.0`
 
-## Fase 7 — Distribución y rendimiento (v1.0.0)
+## Fase 7 — Distribución y rendimiento (v1.0.0) ✅
 
 ### Tareas
 - [x] 7.1 Instalador NSIS e icono
@@ -148,7 +148,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ### Validación
 - [x] Instalación limpia en Windows 11; doble clic en un archivo asociado lo abre en la instancia existente
 - [x] Métricas finales comparadas con la línea base
-- [ ] Tag `v1.0.0`
+- [x] Tag `v1.0.0`
 
 ---
 
@@ -162,7 +162,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.4.0 (fase 4 completa) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
 | v0.5.0 (fase 5 completa) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
 | v0.6.0 (fase 6 completa) | **103–108 MB** privateWS con 34 elementos | **≈136 MB** máximo tras abrir un CBR en doble página y un EPUB en la misma sesión | ~80–290 ms | 5,28 MiB |
-| v1.0.0 (fase 7, pendiente de aprobación) | **106–107 MB** privateWS con 34 elementos; **112 MB** con 2034 elementos en la biblioteca (antes de virtualizar: 209 MB) | 105–136 MB según formato (fases 2–6) | ~85–290 ms | 5,34 MiB (ejecutable 6,6 MB) |
+| v1.0.0 (fase 7 completa) | **106–107 MB** privateWS con 34 elementos; **112 MB** con 2034 elementos en la biblioteca (antes de virtualizar: 209 MB) | 105–136 MB según formato (fases 2–6) | ~85–290 ms | 5,34 MiB (ejecutable 6,6 MB) |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -313,3 +313,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - **Fallo detectado y corregido**: al saltar al final de una lista grande (tecla Fin), la altura de fila medida alternaba entre dos valores, el cálculo se realimentaba y **el renderizador se colgaba**. Ahora la altura se mide solo al cambiar el ancho (máximo de las tarjetas dibujadas), las tarjetas tienen altura fija y se desactiva el anclaje de desplazamiento. Se localizó con una sonda temporal que guardaba los pasos en `localStorage`, ya eliminada.
     - **LRU de documentos (3), precarga y resolución de render de PDF**: se mantienen; las mediciones de las fases 2–5 no mostraron crecimiento de memoria.
   - **Pendiente**: 7.5 (actualizaciones automáticas, opcional) a la espera de decisión.
+- Fase 7 aprobada por el usuario; versión 1.0.0 y tag `v1.0.0` publicados. Primera versión completa. La 7.5 (actualizaciones automáticas) queda pendiente para más adelante.
