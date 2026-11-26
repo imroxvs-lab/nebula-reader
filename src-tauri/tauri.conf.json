@@ -50,7 +50,50 @@
     ],
     "resources": {
       "resources/pdfium/pdfium.dll": "pdfium/pdfium.dll",
-      "resources/pdfium/LICENSE": "pdfium/LICENSE"
+      "resources/pdfium/LICENSE": "pdfium/LICENSE",
+      "../THIRD_PARTY_LICENSES.md": "THIRD_PARTY_LICENSES.md"
+    },
+    "publisher": "Roxvs",
+    "copyright": "© 2026 Roxvs. Licencia MIT.",
+    "homepage": "https://github.com/imroxvs-lab/nebula-reader",
+    "category": "Productivity",
+    "shortDescription": "Lector de libros y cómics",
+    "longDescription": "Lector de libros (EPUB, PDF) y cómics (CBZ, CBR, CB7) para Windows 11.",
+    "licenseFile": "../LICENSE",
+    "fileAssociations": [
+      {
+        "ext": [
+          "cbz",
+          "cbr",
+          "cb7"
+        ],
+        "name": "NebulaReader.Comic",
+        "description": "Cómic",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "epub"
+        ],
+        "name": "NebulaReader.Epub",
+        "description": "Libro electrónico EPUB",
+        "role": "Viewer",
+        "mimeType": "application/epub+zip"
+      }
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Spanish",
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "startMenuFolder": "Nebula Reader",
+        "compression": "lzma",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
     }
   }
 }
