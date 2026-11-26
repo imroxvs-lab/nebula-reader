@@ -122,7 +122,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] CBR/CB7 reales; archivos protegidos o corruptos dan un error amigable
 - [x] Tag `v0.5.0`
 
-## Fase 6 — Organización y ajustes (v0.6.0)
+## Fase 6 — Organización y ajustes (v0.6.0) ✅
 
 ### Tareas
 - [x] 6.1 Migración: `bookmarks`, `collections`, `collection_books`, estado leído/pendiente
@@ -134,7 +134,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ### Validación
 - [x] Checks automáticos en verde
 - [x] Migraciones aplicadas sobre una BD de v0.5.0 sin pérdida de datos
-- [ ] Tag `v0.6.0`
+- [x] Tag `v0.6.0`
 
 ## Fase 7 — Distribución y rendimiento (v1.0.0)
 
@@ -161,7 +161,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.3.0 (fase 3 completa) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
 | v0.4.0 (fase 4 completa) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
 | v0.5.0 (fase 5 completa) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
-| v0.6.0 (fase 6, pendiente de aprobación) | **103–108 MB** privateWS con 34 elementos | **≈136 MB** máximo tras abrir un CBR en doble página y un EPUB en la misma sesión | ~80–290 ms | 5,28 MiB |
+| v0.6.0 (fase 6 completa) | **103–108 MB** privateWS con 34 elementos | **≈136 MB** máximo tras abrir un CBR en doble página y un EPUB en la misma sesión | ~80–290 ms | 5,28 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -299,3 +299,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - no hay selección múltiple para añadir varios libros a la vez a una colección;
     - el reconocimiento de archivos movidos usa nombre y tamaño (no un hash del contenido);
     - el libro de la biblioteca real «Diseño de aplicaciones mediante el uso intensivo de datos» aparece como no encontrado porque su PDF ya no está en `Descargas`.
+- Fase 6 aprobada por el usuario; versión 0.6.0 y tag `v0.6.0` publicados.

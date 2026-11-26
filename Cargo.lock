@@ -2225,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "nebula-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "image",
  "pdfium-render",
@@ -2245,7 +2245,7 @@ dependencies = [
 
 [[package]]
 name = "nebula-reader"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "nebula-core",
  "serde",
