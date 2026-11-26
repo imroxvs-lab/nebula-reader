@@ -44,6 +44,8 @@ export const api = {
   removeFromCollection: (id: CollectionId, books: BookId[]) =>
     invoke<void>("collection_remove_books", { id, books }),
   bookCollections: (id: BookId) => invoke<CollectionId[]>("book_collections", { id }),
+  startupFiles: () => invoke<string[]>("startup_files"),
+  bookForPath: (path: string) => invoke<Book>("book_for_path", { path }),
   saveProgress: (id: BookId, locator: Locator, percent: number) =>
     invoke<void>("progress_save", { id, locator, percent }),
   getSetting: (key: string) => invoke<string | null>("settings_get", { key }),

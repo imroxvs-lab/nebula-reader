@@ -8,6 +8,7 @@
   import Sidebar from "#lib/components/Sidebar.svelte";
   import TitleBar from "#lib/components/TitleBar.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
+  import { listen } from "@tauri-apps/api/event";
   import { api, errorMessage } from "#lib/api.ts";
   import { plural } from "#lib/format.ts";
   import { collections } from "#lib/stores/collections.svelte.ts";
@@ -22,10 +23,42 @@
   $effect(() => {
     void theme.init();
     void library.refreshStats();
-    void prefs.load().then(() => {
+    void prefs.load().then(async () => {
+      // Archivo con el que se abrió la app (doble clic, «Abrir con»…).
+      await openPaths(await api.startupFiles().catch(() => []));
       if (prefs.rescanOnStart) void rescanOnStart();
     });
   });
+
+  // Archivos abiertos con la app ya en marcha (los reenvía la nueva instancia).
+  $effect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listen<string[]>("open-files", (event) => void openPaths(event.payload)).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  });
+
+  /** Añade los archivos a la biblioteca si hace falta y abre el último. */
+  async function openPaths(paths: string[]) {
+    let last = null;
+    for (const path of paths) {
+      try {
+        last = await api.bookForPath(path);
+      } catch (error) {
+        toasts.show("error", "No se pudo abrir el archivo", errorMessage(error));
+      }
+    }
+    if (last) {
+      library.refresh();
+      nav.openReader(last);
+    }
+  }
 
   // Los contadores de las colecciones cambian al importar o quitar libros.
   $effect(() => {
@@ -128,5 +161,6 @@
     border-left: 1px solid var(--layer-stroke);
     border-top-left-radius: var(--radius-md);
     scrollbar-gutter: stable;
+    overflow-anchor: none;
   }
 </style>

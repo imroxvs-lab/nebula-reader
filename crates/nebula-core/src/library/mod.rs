@@ -159,6 +159,20 @@ impl Library {
             .ok_or(CoreError::NotFound(id))
     }
 
+    /// Libro con esa ruta (sin distinguir mayúsculas, como en Windows), si existe.
+    ///
+    /// # Errors
+    /// - [`CoreError::NonUnicodePath`] si la ruta no es Unicode válido.
+    /// - [`CoreError::Db`] si SQLite falla.
+    pub fn find_by_path(&self, path: &Path) -> CoreResult<Option<Book>> {
+        let path = path_to_str(path)?;
+        Ok(self
+            .conn
+            .prepare_cached(&format!("{BOOK_SELECT} WHERE b.path = ?1"))?
+            .query_row([path], book_from_row)
+            .optional()?)
+    }
+
     /// Lista los libros que cumplen la consulta.
     ///
     /// La búsqueda es por subcadena del título; distingue mayúsculas solo fuera
@@ -1189,6 +1203,19 @@ mod tests {
             ..LibraryQuery::default()
         };
         assert_eq!(titles(&list(&lib, &query)), ["a", "b", "c", "sin serie"]);
+    }
+
+    #[test]
+    fn find_by_path_ignores_case() {
+        let lib = library();
+        let id = insert(&lib, "C:/Libros/A.epub", 1);
+        assert_eq!(
+            lib.find_by_path(Path::new("c:/libros/a.EPUB"))
+                .ok()
+                .flatten()
+                .map(|b| b.id),
+            Some(id)
+        );
     }
 
     #[test]

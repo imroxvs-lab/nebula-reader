@@ -5,6 +5,7 @@
 mod commands;
 mod documents;
 mod error;
+mod files;
 mod organize;
 mod protocol;
 mod settings;
@@ -31,6 +32,11 @@ pub fn run() -> tauri::Result<()> {
     init_tracing();
 
     tauri::Builder::default()
+        // Debe ser el primer plugin: si ya hay una instancia, esta se cierra
+        // enseguida tras pasarle los argumentos.
+        .plugin(tauri_plugin_single_instance::init(
+            files::on_second_instance,
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -46,6 +52,11 @@ pub fn run() -> tauri::Result<()> {
             let library = Library::open(&db_path)?;
             let pdf = load_pdf_engine(app.handle());
             app.manage(AppState::new(library, data_dir.join(THUMBS_DIR), pdf));
+            let cwd = std::env::current_dir().unwrap_or_default();
+            app.manage(files::StartupFiles::new(files::files_from_args(
+                std::env::args(),
+                &cwd,
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -58,6 +69,8 @@ pub fn run() -> tauri::Result<()> {
             commands::book_open,
             commands::book_close,
             commands::book_options_set,
+            files::startup_files,
+            files::book_for_path,
             organize::book_set_status,
             organize::book_relocate,
             organize::library_facets,

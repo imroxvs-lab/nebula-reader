@@ -28,6 +28,7 @@ tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", default-features = false, features = ["sync"] }
+tauri-plugin-single-instance = "2.5.5"
 
 [lints]
 workspace = true
