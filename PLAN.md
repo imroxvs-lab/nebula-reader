@@ -109,7 +109,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 - [x] PDF de 500+ páginas con RAM estable al pasar páginas
 - [x] Tag `v0.4.0`
 
-## Fase 5 — CBR, CB7 y modos de cómic avanzados (v0.5.0)
+## Fase 5 — CBR, CB7 y modos de cómic avanzados (v0.5.0) ✅
 
 ### Tareas
 - [x] 5.1 Backends `unrar` y `sevenz-rust2` en `ArchiveBackend`, índice al abrir y caché de páginas
@@ -120,7 +120,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ### Validación
 - [x] Checks automáticos en verde
 - [x] CBR/CB7 reales; archivos protegidos o corruptos dan un error amigable
-- [ ] Tag `v0.5.0`
+- [x] Tag `v0.5.0`
 
 ## Fase 6 — Organización y ajustes (v0.6.0)
 
@@ -160,7 +160,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.2.0 (fase 2 completa) | **94 MB** privateWS con 23 elementos (*commit* 280 MB) | **110–115 MB** leyendo un CBZ de 220 páginas de 1600×2400 (1,3 MB/página); estable tras pasar 45 páginas y volver | ~100–120 ms | 2,06 MiB |
 | v0.3.0 (fase 3 completa) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
 | v0.4.0 (fase 4 completa) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
-| v0.5.0 (fase 5, pendiente de aprobación) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
+| v0.5.0 (fase 5 completa) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -270,3 +270,4 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - no se piden contraseñas de archivos cifrados;
     - RAR multivolumen (`.part1.rar`) no probado;
     - en doble página no hay opción para desplazar los pliegos una página (cuando la portada no es una sola página).
+- Fase 5 aprobada por el usuario; versión 0.5.0 y tag `v0.5.0` publicados.
