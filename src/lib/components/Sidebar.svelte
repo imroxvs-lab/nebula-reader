@@ -1,11 +1,15 @@
 <script lang="ts">
+  import { collections } from "#lib/stores/collections.svelte.ts";
   import { library } from "#lib/stores/library.svelte.ts";
   import { nav, type Section } from "#lib/stores/nav.svelte.ts";
   import { theme } from "#lib/stores/theme.svelte.ts";
   import type { ThemePreference } from "#lib/types.ts";
   import ImportMenu from "./ImportMenu.svelte";
+  import PromptDialog from "./PromptDialog.svelte";
 
-  const items: { section: Section; label: string; glyph: string; count?: () => number }[] = [
+  let creating = $state(false);
+
+  const items: { section: Exclude<Section, "collection" | "settings">; label: string; glyph: string; count?: () => number }[] = [
     { section: "home", label: "Inicio", glyph: "\uE80F" },
     { section: "all", label: "Biblioteca", glyph: "\uE8F1", count: () => library.total },
     { section: "books", label: "Libros", glyph: "\uE736", count: () => library.stats.books },
@@ -39,9 +43,44 @@
         {/if}
       </button>
     {/each}
+
+    <div class="group-head">
+      <h2 id="collections-head">Colecciones</h2>
+      <button class="add" aria-label="Nueva colección" title="Nueva colección" onclick={() => (creating = true)}>
+        <span class="icon" aria-hidden="true">&#xE710;</span>
+      </button>
+    </div>
+    <ul class="collections" aria-labelledby="collections-head">
+      {#each collections.items as collection (collection.id)}
+        {@const selected = nav.section === "collection" && nav.collection?.id === collection.id}
+        <li>
+          <button
+            class="nav-item"
+            class:selected
+            aria-current={selected ? "page" : undefined}
+            onclick={() => nav.goToCollection(collection)}
+          >
+            <span class="icon" aria-hidden="true">&#xE8B7;</span>
+            <span class="label">{collection.name}</span>
+            <span class="count">{collection.count}</span>
+          </button>
+        </li>
+      {:else}
+        <li class="hint">Agrupa tus libros: clic derecho en uno → «Añadir a colección».</li>
+      {/each}
+    </ul>
   </nav>
 
   <div class="footer">
+    <button
+      class="nav-item settings"
+      class:selected={nav.section === "settings"}
+      aria-current={nav.section === "settings" ? "page" : undefined}
+      onclick={() => nav.go("settings")}
+    >
+      <span class="icon" aria-hidden="true">&#xE713;</span>
+      <span class="label">Ajustes</span>
+    </button>
     <div class="theme" role="radiogroup" aria-label="Tema">
       {#each themes as option (option.value)}
         <button
@@ -58,6 +97,19 @@
     </div>
   </div>
 </aside>
+
+{#if creating}
+  <PromptDialog
+    title="Nueva colección"
+    label="Nombre"
+    confirm="Crear"
+    onsubmit={(name) => {
+      creating = false;
+      void collections.create(name).then((created) => created && nav.goToCollection(created));
+    }}
+    oncancel={() => (creating = false)}
+  />
+{/if}
 
 <style>
   .sidebar {
@@ -77,6 +129,60 @@
     flex-direction: column;
     gap: 4px;
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 16px 8px 2px 16px;
+  }
+
+  .group-head h2 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .add {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-size: 12px;
+  }
+
+  .add:hover {
+    background: var(--subtle-hover);
+  }
+
+  .collections {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .collections .nav-item {
+    width: calc(100% - 8px);
+  }
+
+  .hint {
+    padding: 4px 16px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-tertiary);
+  }
+
+  .settings {
+    margin: 0 0 8px;
+    width: 100%;
   }
 
   .nav-item {
@@ -123,6 +229,10 @@
 
   .label {
     flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .count {

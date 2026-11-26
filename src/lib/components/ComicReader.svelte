@@ -2,10 +2,13 @@
   import { tick, untrack } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api, errorMessage, pageUrl, pdfUrl } from "#lib/api.ts";
+  import { BookmarkList } from "#lib/stores/bookmarks.svelte.ts";
   import { library } from "#lib/stores/library.svelte.ts";
+  import { prefs } from "#lib/stores/prefs.svelte.ts";
   import { nav } from "#lib/stores/nav.svelte.ts";
   import { toasts } from "#lib/stores/toasts.svelte.ts";
-  import type { Book, FitMode, OpenedBook, PageLayout, ReaderOptions, ReadingDirection } from "#lib/types.ts";
+  import type { Book, Bookmark, FitMode, OpenedBook, PageLayout, ReaderOptions, ReadingDirection } from "#lib/types.ts";
+  import BookmarksPanel from "./BookmarksPanel.svelte";
 
   let { book }: { book: Book } = $props();
 
@@ -50,6 +53,9 @@
   let layout = $state<PageLayout>("single");
   let direction = $state<ReadingDirection>("ltr");
   let chromeVisible = $state(true);
+  let showBookmarks = $state(false);
+  // El lector se recrea al cambiar de libro (`{#key}`), así que el id es fijo.
+  const bookmarks = untrack(() => new BookmarkList(book.id));
   let viewer: HTMLDivElement | undefined = $state();
   let viewerWidth = $state(0);
   let viewerHeight = $state(0);
@@ -164,15 +170,20 @@
 
   // ---------- Apertura, opciones y progreso ----------
 
+  /** Opciones guardadas del libro; lo que falte sale de los ajustes generales. */
   function parseOptions(raw: string | null): ReaderOptions {
+    const defaults: ReaderOptions = { layout: prefs.defaultLayout, direction: prefs.defaultDirection };
     try {
       const value = raw ? (JSON.parse(raw) as Partial<ReaderOptions>) : {};
       return {
-        layout: value.layout === "double" || value.layout === "webtoon" ? value.layout : "single",
-        direction: value.direction === "rtl" ? "rtl" : "ltr",
+        layout:
+          value.layout === "single" || value.layout === "double" || value.layout === "webtoon"
+            ? value.layout
+            : defaults.layout,
+        direction: value.direction === "rtl" || value.direction === "ltr" ? value.direction : defaults.direction,
       };
     } catch {
-      return { layout: "single", direction: "ltr" };
+      return defaults;
     }
   }
 
@@ -183,6 +194,7 @@
       .openBook(id)
       .then((result) => {
         if (cancelled) return;
+        void bookmarks.load();
         const options = parseOptions(result.readerOptions);
         layout = options.layout;
         direction = options.direction;
@@ -418,7 +430,7 @@
     chromeVisible = true;
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!pointerOverChrome) chromeVisible = false;
+      if (!pointerOverChrome && !showBookmarks) chromeVisible = false;
     }, CHROME_HIDE_MS);
   }
 
@@ -430,12 +442,15 @@
   function onKeydown(event: KeyboardEvent) {
     if (event.target instanceof HTMLInputElement && event.target.type !== "range") return;
     const key = event.key;
-    if (event.ctrlKey && (key === "+" || key === "=")) setZoom(zoom * ZOOM_STEP);
+    if (event.ctrlKey && key.toLowerCase() === "d") void toggleBookmark();
+    else if (event.ctrlKey && (key === "+" || key === "=")) setZoom(zoom * ZOOM_STEP);
     else if (event.ctrlKey && key === "-") setZoom(zoom / ZOOM_STEP);
     else if (event.ctrlKey && key === "0") setZoom(1);
     else if (key === "F11" || key === "f") void toggleFullscreen();
-    else if (key === "Escape") void (fullscreen ? toggleFullscreen() : back());
-    else if (key === "Home") goTo(0);
+    else if (key === "Escape") {
+      if (showBookmarks) showBookmarks = false;
+      else void (fullscreen ? toggleFullscreen() : back());
+    } else if (key === "Home") goTo(0);
     else if (key === "End") goTo(pageCount - 1);
     else if (layout === "webtoon") {
       if (!viewer) return;
@@ -492,6 +507,22 @@
       clearTimeout(hideTimer);
       chromeVisible = false;
     } else showChrome();
+  }
+
+  // ---------- Marcadores ----------
+
+  const here = $derived({ type: "page" as const, index });
+  const marked = $derived(bookmarks.find(here) !== undefined);
+
+  async function toggleBookmark() {
+    if (!opened) return;
+    await bookmarks.toggle(here, (index + 1) / pageCount, `Página ${index + 1}`);
+  }
+
+  function jumpTo(bookmark: Bookmark) {
+    if (bookmark.locator.type !== "page") return;
+    showBookmarks = false;
+    goTo(bookmark.locator.index);
   }
 
   /** Páginas mostradas en orden físico (de izquierda a derecha). */
@@ -600,6 +631,17 @@
 
     <button
       class="tool"
+      class:selected={showBookmarks || marked}
+      aria-expanded={showBookmarks}
+      onclick={() => (showBookmarks = !showBookmarks)}
+      aria-label="Marcadores"
+      title="Marcadores (Ctrl+D marca la página actual)"
+    >
+      <span class="icon" aria-hidden="true">{marked ? "\uE735" : "\uE734"}</span>
+    </button>
+
+    <button
+      class="tool"
       onclick={toggleFullscreen}
       aria-label={fullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
       title="Pantalla completa (F11)"
@@ -607,6 +649,13 @@
       <span class="icon" aria-hidden="true">{fullscreen ? "\uE73F" : "\uE740"}</span>
     </button>
   </div>
+
+  {#if showBookmarks}
+    <div class="panel" role="dialog" aria-label="Marcadores">
+      <h2>Marcadores</h2>
+      <BookmarksPanel list={bookmarks} {marked} ontoggle={() => void toggleBookmark()} onjump={jumpTo} />
+    </div>
+  {/if}
 
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -797,8 +846,8 @@
   }
 
   .tool.selected {
-    background: rgba(180, 163, 255, 0.22);
-    color: #c9bdff;
+    background: color-mix(in srgb, var(--accent-dark, #b4a3ff) 22%, transparent);
+    color: var(--accent-dark, #c9bdff);
   }
 
   .tool:disabled {
@@ -827,6 +876,29 @@
        el ancho útil cambiaría sin que lo detecte `bind:clientWidth`. */
     scrollbar-gutter: stable both-edges;
     scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  }
+
+  .panel {
+    position: absolute;
+    top: 52px;
+    right: 12px;
+    z-index: 3;
+    width: 320px;
+    max-height: calc(100% - 120px);
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(28, 28, 34, 0.97);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    --panel-hover: rgba(255, 255, 255, 0.08);
+    --panel-line: rgba(255, 255, 255, 0.14);
+  }
+
+  .panel h2 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
   }
 
   .spread {
@@ -862,7 +934,7 @@
   .pager input[type="range"][dir="rtl"] {
     background: linear-gradient(
       270deg,
-      #b4a3ff var(--progress),
+      var(--accent-dark, #b4a3ff) var(--progress),
       rgba(255, 255, 255, 0.2) var(--progress)
     );
   }
@@ -905,7 +977,7 @@
     height: 28px;
     border-radius: 50%;
     border: 3px solid rgba(255, 255, 255, 0.15);
-    border-top-color: #b4a3ff;
+    border-top-color: var(--accent-dark, #b4a3ff);
     animation: spin 800ms linear infinite;
   }
 
@@ -916,7 +988,7 @@
     border-radius: 2px;
     background: linear-gradient(
       90deg,
-      #b4a3ff var(--progress),
+      var(--accent-dark, #b4a3ff) var(--progress),
       rgba(255, 255, 255, 0.2) var(--progress)
     );
     outline-offset: 6px;
@@ -928,7 +1000,7 @@
     height: 16px;
     border-radius: 50%;
     background: #fff;
-    border: 4px solid #b4a3ff;
+    border: 4px solid var(--accent-dark, #b4a3ff);
   }
 
   .counter {

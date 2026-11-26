@@ -3,11 +3,18 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Book,
   BookId,
+  Bookmark,
+  BookmarkId,
+  Collection,
+  CollectionId,
   CommandError,
   ImportReport,
   LibraryQuery,
+  LibraryFacets,
   LibraryStats,
   Locator,
+  ReadStatus,
+  RescanReport,
   OpenedBook,
 } from "./types";
 
@@ -21,6 +28,22 @@ export const api = {
   openBook: (id: BookId) => invoke<OpenedBook>("book_open", { id }),
   closeBook: (id: BookId) => invoke<void>("book_close", { id }),
   setBookOptions: (id: BookId, options: string) => invoke<void>("book_options_set", { id, options }),
+  setStatus: (id: BookId, status: ReadStatus) => invoke<void>("book_set_status", { id, status }),
+  relocateBook: (id: BookId, path: string) => invoke<void>("book_relocate", { id, path }),
+  facets: () => invoke<LibraryFacets>("library_facets"),
+  rescan: () => invoke<RescanReport>("library_rescan"),
+  bookmarks: (id: BookId) => invoke<Bookmark[]>("bookmarks_list", { id }),
+  addBookmark: (id: BookId, locator: Locator, percent: number, label: string) =>
+    invoke<Bookmark>("bookmark_add", { id, locator, percent, label }),
+  removeBookmark: (id: BookmarkId) => invoke<void>("bookmark_remove", { id }),
+  collections: () => invoke<Collection[]>("collections_list"),
+  createCollection: (name: string) => invoke<Collection>("collection_create", { name }),
+  renameCollection: (id: CollectionId, name: string) => invoke<void>("collection_rename", { id, name }),
+  deleteCollection: (id: CollectionId) => invoke<void>("collection_delete", { id }),
+  addToCollection: (id: CollectionId, books: BookId[]) => invoke<void>("collection_add_books", { id, books }),
+  removeFromCollection: (id: CollectionId, books: BookId[]) =>
+    invoke<void>("collection_remove_books", { id, books }),
+  bookCollections: (id: BookId) => invoke<CollectionId[]>("book_collections", { id }),
   saveProgress: (id: BookId, locator: Locator, percent: number) =>
     invoke<void>("progress_save", { id, locator, percent }),
   getSetting: (key: string) => invoke<string | null>("settings_get", { key }),

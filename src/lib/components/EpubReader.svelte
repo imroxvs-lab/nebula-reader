@@ -3,10 +3,12 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { api, epubBase, epubUrl, errorMessage } from "#lib/api.ts";
   import { FONT_SIZE, LINE_HEIGHT, MARGINS, epubStyle } from "#lib/stores/epubStyle.svelte.ts";
+  import { BookmarkList } from "#lib/stores/bookmarks.svelte.ts";
   import { library } from "#lib/stores/library.svelte.ts";
   import { nav } from "#lib/stores/nav.svelte.ts";
   import { toasts } from "#lib/stores/toasts.svelte.ts";
-  import type { Book, EpubStyle, EpubTheme, SpineItem, TocEntry } from "#lib/types.ts";
+  import type { Book, Bookmark, EpubStyle, EpubTheme, SpineItem, TocEntry } from "#lib/types.ts";
+  import BookmarksPanel from "./BookmarksPanel.svelte";
 
   let { book }: { book: Book } = $props();
 
@@ -41,7 +43,9 @@
   let pages = $state(1);
   let ready = $state(false);
   let loading = $state(true);
-  let panel = $state<"toc" | "style" | null>(null);
+  let panel = $state<"toc" | "style" | "bookmarks" | null>(null);
+  // El lector se recrea al cambiar de libro (`{#key}`), así que el id es fijo.
+  const bookmarks = untrack(() => new BookmarkList(book.id));
   let chromeVisible = $state(true);
   let frame: HTMLIFrameElement | undefined = $state();
 
@@ -79,6 +83,7 @@
       .then(async (opened) => {
         if (cancelled) return;
         if (opened.content.type !== "epub") throw new Error("El libro no es un EPUB.");
+        void bookmarks.load();
         spine = opened.content.spine;
         toc = opened.content.toc;
         const locator = opened.progress?.locator;
@@ -493,7 +498,8 @@
 
   function onKeydown(event: KeyboardEvent) {
     const key = event.key;
-    if (key === "ArrowRight" || key === "PageDown" || (key === " " && !event.shiftKey)) void next();
+    if (event.ctrlKey && key.toLowerCase() === "d") void toggleBookmark();
+    else if (key === "ArrowRight" || key === "PageDown" || (key === " " && !event.shiftKey)) void next();
     else if (key === "ArrowLeft" || key === "PageUp" || (key === " " && event.shiftKey)) void previous();
     else if (key === "Home") void loadChapter(0);
     else if (key === "End") void loadChapter(spine.length - 1, { last: true });
@@ -505,7 +511,30 @@
     event.preventDefault();
   }
 
-  function togglePanel(which: "toc" | "style") {
+  // ---------- Marcadores ----------
+
+  const here = $derived({ type: "epub" as const, spine: chapter, position: pages > 1 ? page / pages : 0 });
+  const marked = $derived(ready && bookmarks.find(here) !== undefined);
+
+  async function toggleBookmark() {
+    if (!ready) return;
+    const place = currentToc?.title ?? `Capítulo ${chapter + 1}`;
+    await bookmarks.toggle(here, percent, `${place} · página ${page + 1}`);
+  }
+
+  async function jumpTo(bookmark: Bookmark) {
+    if (bookmark.locator.type !== "epub") return;
+    panel = null;
+    const { spine: target, position } = bookmark.locator;
+    if (target === chapter) {
+      page = Math.min(pages - 1, Math.floor(position * pages + 1e-6));
+      scrollToPage();
+    } else {
+      await loadChapter(target, { position });
+    }
+  }
+
+  function togglePanel(which: "toc" | "style" | "bookmarks") {
     panel = panel === which ? null : which;
     showChrome();
   }
@@ -552,6 +581,16 @@
     </button>
     <button
       class="tool"
+      class:selected={panel === "bookmarks" || marked}
+      aria-expanded={panel === "bookmarks"}
+      onclick={() => togglePanel("bookmarks")}
+      aria-label="Marcadores"
+      title="Marcadores (Ctrl+D marca la posición actual)"
+    >
+      <span class="icon" aria-hidden="true">{marked ? "\uE735" : "\uE734"}</span>
+    </button>
+    <button
+      class="tool"
       class:selected={panel === "style"}
       onclick={() => togglePanel("style")}
       aria-label="Aspecto del texto"
@@ -585,6 +624,11 @@
           </li>
         {/each}
       </ul>
+    </div>
+  {:else if panel === "bookmarks"}
+    <div class="panel" role="dialog" aria-label="Marcadores">
+      <h2>Marcadores</h2>
+      <BookmarksPanel list={bookmarks} {marked} ontoggle={() => void toggleBookmark()} onjump={(b) => void jumpTo(b)} />
     </div>
   {:else if panel === "style"}
     <div class="panel style" role="dialog" aria-label="Aspecto del texto">
@@ -859,6 +903,8 @@
     background: var(--chrome-bg);
     color: var(--page-fg);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+    --panel-hover: var(--chrome-hover);
+    --panel-line: var(--chrome-line);
   }
 
   .panel h2 {

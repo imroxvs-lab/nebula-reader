@@ -22,12 +22,14 @@
   /* Claro (por defecto) */
   --text: #1a1a1a;
   --text-secondary: #5d5d5d;
-  --text-tertiary: #8a8a8a;
+  /* #6b6b6b sobre blanco: contraste 5,3:1 (WCAG AA para texto pequeño). */
+  --text-tertiary: #6b6b6b;
   --text-on-accent: #ffffff;
 
-  --accent: #6a4dd8;
-  --accent-hover: #5c40c7;
-  --accent-soft: rgba(106, 77, 216, 0.12);
+  /* El acento lo elige el usuario (prefs.applyAccent define --accent-light/-dark). */
+  --accent: var(--accent-light, #6a4dd8);
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
 
   --layer: rgba(255, 255, 255, 0.5);
   --layer-stroke: rgba(0, 0, 0, 0.0578);
@@ -50,12 +52,13 @@
 :root[data-theme="dark"] {
   --text: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.786);
-  --text-tertiary: rgba(255, 255, 255, 0.544);
-  --text-on-accent: #120b2e;
+  /* 0.6 sobre el fondo oscuro: contraste ≈ 6:1. */
+  --text-tertiary: rgba(255, 255, 255, 0.6);
+  --text-on-accent: #10101a;
 
-  --accent: #b4a3ff;
-  --accent-hover: #c5b8ff;
-  --accent-soft: rgba(180, 163, 255, 0.16);
+  --accent: var(--accent-dark, #b4a3ff);
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, white);
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
 
   --layer: rgba(58, 58, 58, 0.3);
   --layer-stroke: rgba(0, 0, 0, 0.1);
@@ -107,7 +110,7 @@ button {
 
 :focus-visible {
   outline: 2px solid var(--text);
-  outline-offset: 1px;
+  outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
 
@@ -174,6 +177,35 @@ button {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Contraste alto de Windows: se usan los colores del sistema. */
+@media (forced-colors: active) {
+  :root {
+    --accent: Highlight;
+    --text-on-accent: HighlightText;
+    --card-stroke: CanvasText;
+    --control-stroke: CanvasText;
+  }
+
+  .btn,
+  button {
+    border: 1px solid ButtonText;
+  }
+
+  :focus-visible {
+    outline: 3px solid Highlight;
+  }
+}
+
+/* Texto solo para lectores de pantalla. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

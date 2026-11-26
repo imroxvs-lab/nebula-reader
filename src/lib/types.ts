@@ -3,7 +3,10 @@
 export type BookId = number;
 export type BookFormat = "cbz" | "cbr" | "cb7" | "epub" | "pdf";
 export type BookKind = "book" | "comic";
-export type SortBy = "title" | "addedAt" | "lastOpened";
+export type SortBy = "title" | "addedAt" | "lastOpened" | "author" | "series";
+export type ReadStatus = "unread" | "reading" | "finished";
+export type CollectionId = number;
+export type BookmarkId = number;
 
 export interface Book {
   id: BookId;
@@ -21,7 +24,45 @@ export interface Book {
   author: string | null;
   series: string | null;
   seriesIndex: number | null;
+  status: ReadStatus;
+  /** El archivo no estaba en su ruta en la última comprobación. */
+  missing: boolean;
 }
+
+export interface Collection {
+  id: CollectionId;
+  name: string;
+  count: number;
+}
+
+export interface Bookmark {
+  id: BookmarkId;
+  locator: Locator;
+  percent: number;
+  label: string;
+  createdAt: number;
+}
+
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface LibraryFacets {
+  authors: FacetValue[];
+  series: FacetValue[];
+}
+
+export interface RescanReport {
+  checked: number;
+  missing: number;
+  restored: number;
+  relocated: number;
+  added: number;
+  failures: ImportFailure[];
+}
+
+export type Accent = "violet" | "blue" | "teal" | "green" | "orange" | "pink";
 
 export type CoverStatus = "pending" | "ready" | "failed";
 
@@ -75,6 +116,10 @@ export interface LibraryQuery {
   kind?: BookKind | null;
   sort?: SortBy;
   limit?: number | null;
+  status?: ReadStatus | null;
+  author?: string | null;
+  series?: string | null;
+  collection?: CollectionId | null;
 }
 
 export interface LibraryStats {

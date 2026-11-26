@@ -4,10 +4,16 @@
   import DropOverlay from "#lib/components/DropOverlay.svelte";
   import HomeView from "#lib/components/HomeView.svelte";
   import LibraryView from "#lib/components/LibraryView.svelte";
+  import SettingsView from "#lib/components/SettingsView.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
   import TitleBar from "#lib/components/TitleBar.svelte";
   import Toasts from "#lib/components/Toasts.svelte";
+  import { api, errorMessage } from "#lib/api.ts";
+  import { plural } from "#lib/format.ts";
+  import { collections } from "#lib/stores/collections.svelte.ts";
   import { library } from "#lib/stores/library.svelte.ts";
+  import { prefs } from "#lib/stores/prefs.svelte.ts";
+  import { toasts } from "#lib/stores/toasts.svelte.ts";
   import { SECTION_KIND, nav } from "#lib/stores/nav.svelte.ts";
   import { theme } from "#lib/stores/theme.svelte.ts";
 
@@ -16,7 +22,34 @@
   $effect(() => {
     void theme.init();
     void library.refreshStats();
+    void prefs.load().then(() => {
+      if (prefs.rescanOnStart) void rescanOnStart();
+    });
   });
+
+  // Los contadores de las colecciones cambian al importar o quitar libros.
+  $effect(() => {
+    void library.revision;
+    void collections.refresh();
+  });
+
+  /** Reescaneo silencioso al arrancar: solo avisa si ha cambiado algo. */
+  async function rescanOnStart() {
+    try {
+      const report = await api.rescan();
+      const changes = [
+        report.added > 0 && plural(report.added, "nuevo", "nuevos"),
+        report.relocated > 0 && plural(report.relocated, "movido", "movidos"),
+        report.missing > 0 && plural(report.missing, "no encontrado", "no encontrados"),
+      ].filter(Boolean);
+      if (changes.length > 0) {
+        toasts.show("info", "Biblioteca actualizada", changes.join(" · "));
+        library.refresh();
+      }
+    } catch (error) {
+      toasts.show("error", "No se pudo revisar la biblioteca", errorMessage(error));
+    }
+  }
 
   function onKeydown(event: KeyboardEvent) {
     if (nav.reading) return;
@@ -53,7 +86,13 @@
     <main class="content">
       {#if nav.section === "home"}
         <HomeView />
-      {:else}
+      {:else if nav.section === "settings"}
+        <SettingsView />
+      {:else if nav.section === "collection" && nav.collection}
+        {#key nav.collection.id}
+          <LibraryView kind={null} title={nav.collection.name} collection={nav.collection} />
+        {/key}
+      {:else if nav.section !== "collection"}
         {#key nav.section}
           <LibraryView kind={SECTION_KIND[nav.section]} title={titles[nav.section]} />
         {/key}

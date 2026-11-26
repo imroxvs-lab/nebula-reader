@@ -5,13 +5,19 @@
 
   let {
     book,
+    tabbable = true,
+    onfocus,
     onopen,
     onmenu,
   }: {
     book: Book;
+    tabbable?: boolean;
+    onfocus?: () => void;
     onopen: (book: Book) => void;
     onmenu: (book: Book, x: number, y: number) => void;
   } = $props();
+
+  const STATUS_LABEL = { unread: "sin leer", reading: "leyendo", finished: "terminado" } as const;
 
   const hue = $derived(hueFromText(book.title));
   const comic = $derived(kindOf(book.format) === "comic");
@@ -19,7 +25,11 @@
   let coverFailed = $state(false);
   const showCover = $derived(hasCover(book) && !coverFailed);
   const subtitle = $derived(
-    book.progress !== null
+    book.missing
+      ? "Archivo no encontrado"
+      : book.status === "finished"
+        ? "Terminado"
+        : book.progress !== null
       ? `${formatPercent(book.progress)} leído`
       : (book.author ?? `${comic ? "Cómic" : "Libro"} · ${formatSize(book.fileSize)}`),
   );
@@ -38,13 +48,15 @@
 
 <!-- Dos botones hermanos (abrir y más opciones): un botón no puede contener a
      otro sin que este quede oculto para los lectores de pantalla. -->
-<div class="card" oncontextmenu={contextMenu} role="presentation">
+<div class="card" class:missing={book.missing} oncontextmenu={contextMenu} role="listitem">
   <button
     class="open"
+    tabindex={tabbable ? 0 : -1}
+    onfocus={() => onfocus?.()}
     title={book.path}
-    aria-label="{book.title}, {comic ? 'cómic' : 'libro'} {book.format.toUpperCase()}{book.progress !== null
-      ? `, ${formatPercent(book.progress)} leído`
-      : ''}"
+    aria-label="{book.title}{book.author ? `, de ${book.author}` : ''}, {comic ? 'cómic' : 'libro'} {book.format.toUpperCase()}, {book.status === 'reading' && book.progress !== null
+      ? `${formatPercent(book.progress)} leído`
+      : STATUS_LABEL[book.status]}{book.missing ? ', archivo no encontrado' : ''}"
     onclick={() => onopen(book)}
     onkeydown={(e) => {
       if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
@@ -70,6 +82,12 @@
         />
       {/if}
       <span class="badge">{book.format.toUpperCase()}</span>
+      {#if book.status === "finished"}
+        <span class="done"><span class="icon">&#xE73E;</span></span>
+      {/if}
+      {#if book.missing}
+        <span class="missing-flag"><span class="icon">&#xE7BA;</span> No encontrado</span>
+      {/if}
       {#if book.progress !== null}
         <span class="progress"><span style:width="{book.progress * 100}%"></span></span>
       {/if}
@@ -79,7 +97,7 @@
       <span class="sub">{subtitle}</span>
     </span>
   </button>
-  <button class="more" aria-label="Más opciones de {book.title}" title="Más opciones" onclick={moreButton}>
+  <button class="more" tabindex="-1" aria-label="Más opciones de {book.title}" title="Más opciones (Mayús+F10)" onclick={moreButton}>
     <span class="icon" aria-hidden="true">&#xE712;</span>
   </button>
 </div>
@@ -111,6 +129,19 @@
     border-radius: var(--radius-md);
     background: transparent;
     text-align: left;
+  }
+
+  /* La tarjeta usa `content-visibility`, que recorta lo que sobresale: el
+     indicador de foco se dibuja por dentro para que sea visible. */
+  .open:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    background: var(--subtle-hover);
+  }
+
+  .more:focus-visible {
+    opacity: 1;
+    outline-offset: -2px;
   }
 
   .cover,
@@ -192,6 +223,38 @@
     display: block;
     height: 100%;
     background: var(--accent);
+  }
+
+  .done {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--text-on-accent);
+    font-size: 11px;
+  }
+
+  .missing .cover {
+    filter: grayscale(1) opacity(0.55);
+  }
+
+  .missing-flag {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 44%;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.72);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
   }
 
   .badge {
