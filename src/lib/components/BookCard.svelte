@@ -5,12 +5,16 @@
 
   let {
     book,
+    index = 0,
+    total = 1,
     tabbable = true,
     onfocus,
     onopen,
     onmenu,
   }: {
     book: Book;
+    index?: number;
+    total?: number;
     tabbable?: boolean;
     onfocus?: () => void;
     onopen: (book: Book) => void;
@@ -48,9 +52,10 @@
 
 <!-- Dos botones hermanos (abrir y más opciones): un botón no puede contener a
      otro sin que este quede oculto para los lectores de pantalla. -->
-<div class="card" class:missing={book.missing} oncontextmenu={contextMenu} role="listitem">
+<div class="card" class:missing={book.missing} oncontextmenu={contextMenu} role="listitem" aria-posinset={index + 1} aria-setsize={total}>
   <button
     class="open"
+    data-index={index}
     tabindex={tabbable ? 0 : -1}
     onfocus={() => onfocus?.()}
     title={book.path}
@@ -271,9 +276,13 @@
     background: rgba(0, 0, 0, 0.42);
   }
 
+  /* Altura fija: todas las tarjetas miden lo mismo (lo necesita la lista
+     virtual de BookGrid para calcular las filas). */
   .meta {
     min-width: 0;
+    height: 38px;
     padding-right: 24px;
+    overflow: hidden;
   }
 
   .title {
