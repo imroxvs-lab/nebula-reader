@@ -57,6 +57,12 @@ impl DocumentCache {
         Ok(archive)
     }
 
+    /// Cierra todos los documentos abiertos.
+    pub fn clear(&self) -> CommandResult<()> {
+        self.lock()?.clear();
+        Ok(())
+    }
+
     /// Cierra un documento si estaba abierto.
     pub fn remove(&self, id: BookId) -> CommandResult<()> {
         self.lock()?.retain(|(entry_id, _)| *entry_id != id);

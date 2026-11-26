@@ -5,7 +5,9 @@
 mod commands;
 mod documents;
 mod error;
+mod organize;
 mod protocol;
+mod settings;
 mod state;
 
 use nebula_core::Library;
@@ -56,6 +58,20 @@ pub fn run() -> tauri::Result<()> {
             commands::book_open,
             commands::book_close,
             commands::book_options_set,
+            organize::book_set_status,
+            organize::book_relocate,
+            organize::library_facets,
+            organize::library_rescan,
+            organize::bookmarks_list,
+            organize::bookmark_add,
+            organize::bookmark_remove,
+            organize::collections_list,
+            organize::collection_create,
+            organize::collection_rename,
+            organize::collection_delete,
+            organize::collection_add_books,
+            organize::collection_remove_books,
+            organize::book_collections,
             commands::progress_save,
             commands::settings_get,
             commands::settings_set,

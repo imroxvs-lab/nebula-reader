@@ -68,7 +68,7 @@ impl From<CoreError> for CommandError {
             CoreError::NotFound(_)
             | CoreError::PageOutOfRange { .. }
             | CoreError::NotFoundInArchive(_) => ErrorCode::NotFound,
-            CoreError::InvalidData(_) => ErrorCode::InvalidInput,
+            CoreError::InvalidData(_) | CoreError::AlreadyExists(_) => ErrorCode::InvalidInput,
             CoreError::Protected(_) => ErrorCode::InvalidFile,
             CoreError::PdfEngine(_) => ErrorCode::Unsupported,
             CoreError::Archive { .. }

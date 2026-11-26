@@ -16,10 +16,6 @@ use tauri::State;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 
-/// Claves de ajustes que la interfaz puede leer y escribir.
-const SETTING_KEYS: &[&str] = &["theme", "readerFit", "epubStyle"];
-/// Longitud máxima de un valor de ajuste.
-const MAX_SETTING_LEN: usize = 1024;
 /// Longitud máxima del texto de búsqueda.
 const MAX_SEARCH_LEN: usize = 256;
 /// Número máximo de rutas por importación.
@@ -156,6 +152,19 @@ pub async fn book_open(state: State<'_, AppState>, id: BookId) -> CommandResult<
     state
         .blocking(move |state| {
             let book = state.library_blocking(|lib| lib.get(id))?;
+            // Se comprueba aquí para marcar el libro como desaparecido (o
+            // recuperado) y dar un mensaje claro.
+            let exists = book.path.is_file();
+            if exists == book.missing {
+                state.library_blocking(|lib| lib.set_missing(id, !exists))?;
+            }
+            if !exists {
+                return Err(CommandError::new(
+                    crate::error::ErrorCode::Io,
+                    "No se encuentra el archivo. ¿Se ha movido, borrado o está en un disco desconectado? \
+                     Usa «Localizar archivo…» para indicar dónde está.",
+                ));
+            }
             let (units, content, fresh_metadata) = if book.format == BookFormat::Pdf {
                 // Los PDF no se mantienen abiertos: cada página se renderiza aparte.
                 let engine = state.pdf()?;
@@ -281,7 +290,7 @@ pub async fn settings_get(
     state: State<'_, AppState>,
     key: String,
 ) -> CommandResult<Option<String>> {
-    validate_setting_key(&key)?;
+    crate::settings::validate_key(&key)?;
     state.with_library(move |lib| lib.setting(&key)).await
 }
 
@@ -292,25 +301,10 @@ pub async fn settings_set(
     key: String,
     value: String,
 ) -> CommandResult<()> {
-    validate_setting_key(&key)?;
-    if value.len() > MAX_SETTING_LEN {
-        return Err(CommandError::invalid_input(
-            "valor de ajuste demasiado largo",
-        ));
-    }
+    crate::settings::validate(&key, &value)?;
     state
         .with_library(move |lib| lib.set_setting(&key, &value))
         .await
-}
-
-fn validate_setting_key(key: &str) -> CommandResult<()> {
-    if SETTING_KEYS.contains(&key) {
-        Ok(())
-    } else {
-        Err(CommandError::invalid_input(format!(
-            "ajuste desconocido: {key}"
-        )))
-    }
 }
 
 #[cfg(test)]
@@ -321,15 +315,5 @@ mod tests {
     fn reader_content_fields_are_camel_case() {
         let json = serde_json::to_string(&ReaderContent::Pdf { aspect_ratio: 1.5 }).ok();
         assert_eq!(json.as_deref(), Some(r#"{"type":"pdf","aspectRatio":1.5}"#));
-    }
-
-    #[test]
-    fn known_setting_key_is_accepted() {
-        assert!(validate_setting_key("theme").is_ok());
-    }
-
-    #[test]
-    fn unknown_setting_key_is_rejected() {
-        assert!(validate_setting_key("../../etc").is_err());
     }
 }
