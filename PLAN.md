@@ -125,15 +125,15 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Fase 6 — Organización y ajustes (v0.6.0)
 
 ### Tareas
-- [ ] 6.1 Migración: `bookmarks`, `collections`, `collection_books`, estado leído/pendiente
-- [ ] 6.2 Pantalla de Ajustes (tema, acento, comportamiento del lector, carpetas vigiladas opcionales)
-- [ ] 6.3 Marcadores y colecciones/estanterías en la UI
-- [ ] 6.4 Filtros por estado/autor/serie; reescaneo y detección de archivos movidos/eliminados
-- [ ] 6.5 Accesibilidad: navegación por teclado, foco visible, contraste
+- [x] 6.1 Migración: `bookmarks`, `collections`, `collection_books`, estado leído/pendiente
+- [x] 6.2 Pantalla de Ajustes (tema, acento, comportamiento del lector, carpetas de la biblioteca con revisión manual o al iniciar)
+- [x] 6.3 Marcadores y colecciones/estanterías en la UI
+- [x] 6.4 Filtros por estado/autor/serie; reescaneo y detección de archivos movidos/eliminados
+- [x] 6.5 Accesibilidad: navegación por teclado, foco visible, contraste
 
 ### Validación
-- [ ] Checks automáticos en verde
-- [ ] Migraciones aplicadas sobre una BD de v0.5.0 sin pérdida de datos
+- [x] Checks automáticos en verde
+- [x] Migraciones aplicadas sobre una BD de v0.5.0 sin pérdida de datos
 - [ ] Tag `v0.6.0`
 
 ## Fase 7 — Distribución y rendimiento (v1.0.0)
@@ -161,6 +161,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.3.0 (fase 3 completa) | **94–96 MB** privateWS con 25 elementos | **105–116 MB** leyendo un EPUB; estable tras pasar 80 páginas (CPU en reposo ≈ 0) | ~75–250 ms | 2,12 MiB |
 | v0.4.0 (fase 4 completa) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
 | v0.5.0 (fase 5 completa) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
+| v0.6.0 (fase 6, pendiente de aprobación) | **103–108 MB** privateWS con 34 elementos | **≈136 MB** máximo tras abrir un CBR en doble página y un EPUB en la misma sesión | ~80–290 ms | 5,28 MiB |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -271,3 +272,30 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - RAR multivolumen (`.part1.rar`) no probado;
     - en doble página no hay opción para desplazar los pliegos una página (cuando la portada no es una sola página).
 - Fase 5 aprobada por el usuario; versión 0.5.0 y tag `v0.5.0` publicados.
+- Fase 6 (6.1–6.5):
+  - **Migración 5**: `books.finished_at` y `books.missing`, tablas `bookmarks`, `collections` (nombre único sin distinguir mayúsculas) y `collection_books` (borrado en cascada). Los libros con progreso ≥ 99,9 % se marcan como terminados al migrar. Probada sobre una copia de la base de datos real de v0.5.0 (31 libros y 10 progresos, sin pérdidas) y con un test que reconstruye el esquema v4.
+  - **Estado de lectura** (`unread`/`reading`/`finished`): se calcula a partir del progreso y de `finished_at`. Llegar al final marca el libro como terminado. Se puede marcar a mano como «terminado» o «no leído» (esto último borra el progreso). Los terminados y los desaparecidos no salen en «Continuar leyendo».
+  - **Filtros**: estado, autor y serie (valores reales de la biblioteca con su recuento, comando `library_facets`), colección, y órdenes nuevos por autor y por serie y número. La búsqueda ya incluía autor y serie.
+  - **Carpetas de la biblioteca y revisión** (sustituye a las «carpetas vigiladas»): no hay vigilancia en segundo plano, por coherencia con el objetivo de bajo consumo. «Revisar ahora» (y, opcionalmente, al iniciar) hace lo siguiente:
+    - marca los archivos desaparecidos y desmarca los que reaparecen;
+    - reconoce los **movidos** por nombre y tamaño, y conservan progreso, marcadores y colecciones;
+    - añade los nuevos.
+
+    El disco se recorre sin bloquear la biblioteca (`plan_rescan` y `apply_rescan`) y solo se leen metadatos de los archivos nuevos. Los libros no encontrados se muestran en gris con «No encontrado»; con «Localizar archivo…» se indica la nueva ruta (mismo formato y sin duplicados). Al abrir uno desaparecido se marca y se explica qué hacer.
+  - **Marcadores** en el lector de cómics y PDF y en el de EPUB: botón, panel y Ctrl+D para marcar o desmarcar. Las etiquetas son automáticas («Página 12», «Capítulo 3 · página 4»).
+  - **Colecciones**: en la barra lateral, con su recuento. Se crean desde la barra lateral o desde el menú de un libro («Añadir a colección», con casillas). Se pueden renombrar y borrar (los libros se conservan).
+  - **Ajustes**: tema; color de acento (6 colores, con variantes para tema claro y oscuro); ajuste, modo y sentido de lectura por defecto (para libros sin opciones propias); tema de los EPUB; carpetas de la biblioteca y revisión al iniciar; acerca de y licencias. **Cada clave se valida en Rust** (`settings.rs`) con su conjunto de valores permitidos.
+  - **Accesibilidad**:
+    - navegación con flechas, Inicio y Fin en la cuadrícula, con una sola parada de tabulación;
+    - menús contextuales accesibles con teclado (Mayús+F10 o tecla de menú, flechas, submenús con → y ←, Esc devuelve el foco);
+    - diálogo modal nativo (`<dialog>`) con foco atrapado;
+    - foco visible en tarjetas y desplegables. Se corrigieron dos fallos: `content-visibility` recortaba el contorno de foco y `outline: none` lo eliminaba en los desplegables;
+    - el texto terciario pasa a contraste AA (5,3:1 en claro, ≈6:1 en oscuro);
+    - soporte de **alto contraste de Windows** (`forced-colors`);
+    - etiquetas accesibles de las tarjetas con autor, estado y si falta el archivo.
+  - **Fallo detectado y corregido**: con la flecha abajo, el foco saltaba hasta la última tarjeta porque `offsetTop` se medía respecto a la propia tarjeta.
+  - **Pendiente o limitado**:
+    - la búsqueda sigue sin ignorar acentos ni mayúsculas fuera de ASCII (`LIKE` de SQLite);
+    - no hay selección múltiple para añadir varios libros a la vez a una colección;
+    - el reconocimiento de archivos movidos usa nombre y tamaño (no un hash del contenido);
+    - el libro de la biblioteca real «Diseño de aplicaciones mediante el uso intensivo de datos» aparece como no encontrado porque su PDF ya no está en `Descargas`.
