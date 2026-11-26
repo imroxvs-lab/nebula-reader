@@ -60,7 +60,20 @@ npm run check
 npm run build
 ```
 
+## Instalador
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\fetch-pdfium.ps1   # una vez
+npm run licenses                                                     # regenera THIRD_PARTY_LICENSES.md
+npm run tauri build
+# → target\release\bundle\nsis\Nebula Reader_<versión>_x64-setup.exe
+```
+Se instala para el usuario actual (sin permisos de administrador). Asocia CBZ, CBR, CB7 y EPUB
+(Windows 11 pide confirmar la aplicación la primera vez). Los PDF solo se añaden a «Abrir con»,
+para no cambiar el lector de PDF que ya tengas.
+
 ## Licencias de terceros
+La lista completa está en [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
 - PDFium (`pdfium.dll`): BSD-3-Clause / Apache-2.0, binarios de [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries). Se instala junto con su licencia en `pdfium\LICENSE`.
 
 - UnRAR (lectura de CBR): licencia de RARLAB. Permite usar el código para leer archivos RAR, pero no para crear un compresor compatible con RAR.

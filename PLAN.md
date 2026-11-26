@@ -5,7 +5,7 @@ Objetivo: diseño moderno (estilo Windows 11, Mica), bajo consumo de RAM y recur
 
 Objetivos de recursos (medidos en release con `scripts/measure.ps1`, suma de la app y de sus procesos WebView2):
 - **Métrica principal: working set privado**, que es la columna «Memoria» del Administrador de tareas. El *commit* se anota como dato secundario: en el proceso GPU incluye reservas de Direct3D que no ocupan RAM física.
-- Reposo: no superar en más de ~30 MB la línea base de v0.1.0 (~82 MB vacía, ~86 MB con 21 elementos).
+- Reposo: no superar en más de ~30 MB la línea base de v0.1.0 (~82 MB vacía, ~86 MB con 21 elementos). **v1.0.0: 106–107 MB (+20 MB) con el doble de funciones; 112 MB con 2034 libros.**
 - Lectura: crecimiento acotado y estable al pasar páginas (sin fugas).
 - Instalador NSIS: < 10 MB (v0.1.0: 1,80 MiB; con PDFium desde v0.4.0: 5,05 MiB).
 
@@ -139,15 +139,15 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 ## Fase 7 — Distribución y rendimiento (v1.0.0)
 
 ### Tareas
-- [ ] 7.1 Instalador NSIS e icono
-- [ ] 7.2 Asociaciones de archivo (.cbz/.cbr/.cb7/.epub/.pdf), apertura por argumento, `single-instance`
-- [ ] 7.3 `THIRD_PARTY_LICENSES` (unrar, pdfium, etc.)
-- [ ] 7.4 Medición en release y ajuste (opt-level, tamaños de LRU, resolución de render, virtualización del grid si hace falta)
-- [ ] 7.5 (Opcional) Actualizaciones automáticas con `tauri-plugin-updater`
+- [x] 7.1 Instalador NSIS e icono
+- [x] 7.2 Asociaciones de archivo (.cbz/.cbr/.cb7/.epub; .pdf solo en «Abrir con»), apertura por argumento, `single-instance`
+- [x] 7.3 `THIRD_PARTY_LICENSES` (unrar, pdfium, etc.)
+- [x] 7.4 Medición en release y ajuste (opt-level, tamaños de LRU, resolución de render, virtualización del grid si hace falta)
+- [ ] 7.5 (Opcional) Actualizaciones automáticas con `tauri-plugin-updater` — **no implementada**: requiere claves de firma y publicar los instaladores en GitHub Releases; pendiente de decisión del usuario
 
 ### Validación
-- [ ] Instalación limpia en Windows 11; doble clic en un archivo asociado lo abre en la instancia existente
-- [ ] Métricas finales comparadas con la línea base
+- [x] Instalación limpia en Windows 11; doble clic en un archivo asociado lo abre en la instancia existente
+- [x] Métricas finales comparadas con la línea base
 - [ ] Tag `v1.0.0`
 
 ---
@@ -162,6 +162,7 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
 | v0.4.0 (fase 4 completa) | **94–99 MB** privateWS con 27 elementos | **107–112 MB** leyendo un PDF de 500 páginas; estable tras recorrer las 500 y con zoom | ~75–320 ms | 5,05 MiB (incluye `pdfium.dll`, 7,8 MB sin comprimir) |
 | v0.5.0 (fase 5 completa) | **103–105 MB** privateWS con 31 elementos y portadas reales | **113–129 MB** (CBR sólido en doble página, webtoon de 40 páginas, CBR real de 83 páginas) | ~270–290 ms | 5,24 MiB |
 | v0.6.0 (fase 6 completa) | **103–108 MB** privateWS con 34 elementos | **≈136 MB** máximo tras abrir un CBR en doble página y un EPUB en la misma sesión | ~80–290 ms | 5,28 MiB |
+| v1.0.0 (fase 7, pendiente de aprobación) | **106–107 MB** privateWS con 34 elementos; **112 MB** con 2034 elementos en la biblioteca (antes de virtualizar: 209 MB) | 105–136 MB según formato (fases 2–6) | ~85–290 ms | 5,34 MiB (ejecutable 6,6 MB) |
 
 ## Registro de cambios del plan
 - 1.1: la plantilla oficial `create-tauri-app` (svelte-ts) usa SvelteKit en modo SPA (`adapter-static`, sin SSR) en vez de Svelte + Vite puro. Se mantiene por ser la opción recomendada por Tauri; el resultado sigue siendo HTML/JS estático.
@@ -300,3 +301,15 @@ Flujo de trabajo **por fases** (vigente desde la tarea 1.4):
     - el reconocimiento de archivos movidos usa nombre y tamaño (no un hash del contenido);
     - el libro de la biblioteca real «Diseño de aplicaciones mediante el uso intensivo de datos» aparece como no encontrado porque su PDF ya no está en `Descargas`.
 - Fase 6 aprobada por el usuario; versión 0.6.0 y tag `v0.6.0` publicados.
+- Fase 7 (7.1–7.4):
+  - **Icono propio** (`assets/icon.svg`, el planeta con anillo del logo sobre un fondo degradado), generado en todos los tamaños con `tauri icon`. Las variantes de Android e iOS se descartan.
+  - **Instalador NSIS**: editor «Roxvs», español e inglés, instalación **por usuario** (sin permisos de administrador), carpeta del menú Inicio, licencia MIT en el asistente, compresión LZMA.
+  - **Asociaciones**: CBZ, CBR, CB7 y EPUB se registran como formatos propios (ProgID `NebulaReader.Comic` y `NebulaReader.Epub`). Windows 11 pide al usuario confirmar la aplicación la primera vez; ningún instalador puede imponerse como predeterminado. **Los PDF solo se añaden a «Abrir con»** (ganchos `windows/installer-hooks.nsh`): en la primera prueba, la asociación estándar de Tauri cambiaba la clase de `.pdf` del usuario y podía convertir Nebula Reader en el lector de PDF predeterminado sin preguntar. Verificado: antes de instalar, `.pdf` = `PDF`; instalado, `.pdf` = `PDF` + Nebula en «Abrir con»; desinstalado, igual que antes.
+  - **`single-instance`** (`tauri-plugin-single-instance`, el primer plugin registrado) y apertura por argumento (`files.rs`). Al arrancar, las rutas de la línea de órdenes se guardan hasta que la interfaz las pide (`startup_files`). Con la app abierta, la nueva instancia las reenvía (evento `open-files`), trae la ventana al frente y se cierra. `book_for_path` añade el archivo a la biblioteca si no estaba. Verificado con la app instalada: doble clic en un `.cbz` con la app abierta (una sola instancia) y un EPUB nuevo pasado como argumento (se añade y se abre).
+  - **`THIRD_PARTY_LICENSES.md`**: lo genera `npm run licenses` (`scripts/third-party-licenses.mjs`) con `cargo tree -e normal` (265 crates) y las dependencias de ejecución de npm (29), más los textos completos de PDFium y UnRAR. Todas las licencias son permisivas, más 6 MPL-2.0 de dependencias de Tauri y ninguna GPL. Se instala junto al ejecutable.
+  - **Medición y ajustes**:
+    - **`opt-level`**: con `3` las portadas son un 9 % más rápidas (40 frente a 44 ms por página), CBR y EPUB igual, la RAM igual, pero el ejecutable pasa de 6,6 a 9,2 MB (+39 %) y el instalador de 5,34 a 5,95 MiB. **Se mantiene `"s"`.** Herramienta: `cargo run --release -p nebula-core --example bench`.
+    - **Biblioteca de 2034 libros**: sin virtualizar, el renderizador pasaba de 24 a 119 MB (209 MB en total). **Se virtualiza la cuadrícula** a partir de 150 elementos (solo filas visibles ±3) y baja a 32 MB (112 MB en total). La accesibilidad se mantiene: `aria-posinset`/`aria-setsize`, y el teclado trabaja con índices y desplaza la vista.
+    - **Fallo detectado y corregido**: al saltar al final de una lista grande (tecla Fin), la altura de fila medida alternaba entre dos valores, el cálculo se realimentaba y **el renderizador se colgaba**. Ahora la altura se mide solo al cambiar el ancho (máximo de las tarjetas dibujadas), las tarjetas tienen altura fija y se desactiva el anclaje de desplazamiento. Se localizó con una sonda temporal que guardaba los pasos en `localStorage`, ya eliminada.
+    - **LRU de documentos (3), precarga y resolución de render de PDF**: se mantienen; las mediciones de las fases 2–5 no mostraron crecimiento de memoria.
+  - **Pendiente**: 7.5 (actualizaciones automáticas, opcional) a la espera de decisión.
